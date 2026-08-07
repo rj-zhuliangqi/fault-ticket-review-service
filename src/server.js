@@ -157,6 +157,7 @@ function rowColumns(data) {
   };
 }
 function requireField(data, names, label) { if (!keyValue(data, names)) throw new Error(`缺少关键字段：${label}。`); }
+function originalReviewerForData(data) { return keyValue(data, ['human_reviewed_by', '人工复核人', '人工审核人', '原始标注人']); }
 function csvCell(value) { const s = String(value ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 function csvText(headers, rows) { return `\uFEFF${headers.map(csvCell).join(',')}\r\n${rows.map((r) => headers.map((h) => csvCell(r[h])).join(',')).join('\r\n')}\r\n`; }
 function reviewFor(datasetId, rowIdValue) { return db.prepare('SELECT * FROM review_results WHERE dataset_id=? AND row_id=?').get(datasetId, rowIdValue) || null; }
@@ -249,6 +250,7 @@ app.get('/api/datasets/:id/rows', authRequired, activeDataset, (req, res) => {
   const addLike = (field, value) => { if (clean(value)) { where.push(`LOWER(COALESCE(${field},'')) LIKE LOWER(?)`); params.push(`%${clean(value)}%`); } };
   addLike('dr.main_business_group', q.business_group); addLike('dr.ai_route', q.ai_route); addLike('dr.ai_judgment', q.ai_judgment); addLike('dr.human_judgment', q.human_judgment);
   if (clean(q.reviewer_id)) { if (q.reviewer_id === '__unassigned__') where.push('rr.reviewer_id IS NULL'); else { where.push('rr.reviewer_id=?'); params.push(clean(q.reviewer_id)); } }
+  if (clean(q.original_reviewer)) { const wanted = clean(q.original_reviewer); const originalRows = db.prepare('SELECT id,data_json FROM dataset_rows WHERE dataset_id=?').all(req.dataset.id).filter(item => { const value = originalReviewerForData(parseJson(item.data_json, {})); return wanted === '__unassigned__' ? !value : value === wanted; }).map(item => item.id); if (!originalRows.length) where.push('1=0'); else { where.push(`dr.id IN (${originalRows.map(() => '?').join(',')})`); params.push(...originalRows); } }
   if (clean(q.keyword)) { where.push(`(LOWER(COALESCE(dr.main_ticket_number,'')) LIKE LOWER(?) OR LOWER(COALESCE(dr.similar_ticket_number,'')) LIKE LOWER(?) OR LOWER(COALESCE(dr.main_title,'')) LIKE LOWER(?) OR LOWER(COALESCE(dr.similar_title,'')) LIKE LOWER(?) OR LOWER(COALESCE(dr.main_root_cause,'')) LIKE LOWER(?) OR LOWER(COALESCE(dr.similar_root_cause,'')) LIKE LOWER(?) OR LOWER(COALESCE(dr.main_solution,'')) LIKE LOWER(?) OR LOWER(COALESCE(dr.similar_solution,'')) LIKE LOWER(?) OR LOWER(COALESCE(dr.ai_reason,'')) LIKE LOWER(?) OR LOWER(COALESCE(dr.human_note,'')) LIKE LOWER(?))`); for (let i = 0; i < 10; i += 1) params.push(`%${clean(q.keyword)}%`); }
   if (q.minSimilarity !== undefined && q.minSimilarity !== '') { where.push('dr.similarity_score>=?'); params.push(Number(q.minSimilarity)); }
   if (q.maxSimilarity !== undefined && q.maxSimilarity !== '') { where.push('dr.similarity_score<=?'); params.push(Number(q.maxSimilarity)); }
@@ -347,7 +349,10 @@ app.get('/api/datasets/:id/facets', authRequired, activeDataset, (req, res) => {
   const datasetId = req.dataset.id;
   const distinct = (field) => db.prepare('SELECT DISTINCT '+field+' AS value FROM dataset_rows WHERE dataset_id=? AND '+field+" IS NOT NULL AND "+field+"<>'' ORDER BY value").all(datasetId).map(x=>x.value);
   const reviewers = db.prepare("SELECT CASE WHEN rr.reviewer_id IS NULL THEN '__unassigned__' ELSE rr.reviewer_id END AS id, CASE WHEN rr.reviewer_id IS NULL THEN '\u5F85\u9886\u53D6' ELSE COALESCE(rr.reviewer_name, rr.reviewer_username, '\u672A\u77E5\u5BA1\u6838\u4EBA') END AS name, COALESCE(rr.reviewer_username, '') AS username, COUNT(dr.id) AS count FROM dataset_rows dr LEFT JOIN review_results rr ON rr.dataset_id=dr.dataset_id AND rr.row_id=dr.id WHERE dr.dataset_id=? GROUP BY CASE WHEN rr.reviewer_id IS NULL THEN '__unassigned__' ELSE rr.reviewer_id END, CASE WHEN rr.reviewer_id IS NULL THEN '\u5F85\u9886\u53D6' ELSE COALESCE(rr.reviewer_name, rr.reviewer_username, '\u672A\u77E5\u5BA1\u6838\u4EBA') END, COALESCE(rr.reviewer_username, '') ORDER BY CASE WHEN rr.reviewer_id IS NULL THEN 1 ELSE 0 END, name").all(datasetId);
-  res.json({ ai_judgment: distinct('ai_judgment'), human_judgment: distinct('human_judgment'), business_group: distinct('main_business_group'), ai_route: distinct('ai_route'), reviewers });
+  const originalCounts = new Map();
+  db.prepare('SELECT data_json FROM dataset_rows WHERE dataset_id=?').all(datasetId).forEach((row) => { const name = originalReviewerForData(parseJson(row.data_json, {})) || '__unassigned__'; originalCounts.set(name, (originalCounts.get(name) || 0) + 1); });
+  const original_reviewers = [...originalCounts.entries()].map(([id, count]) => ({ id, name: id === '__unassigned__' ? '未填写' : id, count })).sort((a, b) => Number(a.id === '__unassigned__') - Number(b.id === '__unassigned__') || a.name.localeCompare(b.name, 'zh-CN'));
+  res.json({ ai_judgment: distinct('ai_judgment'), human_judgment: distinct('human_judgment'), business_group: distinct('main_business_group'), ai_route: distinct('ai_route'), reviewers, original_reviewers });
 });
 app.post('/api/datasets/:id/rows/:rowId/assign', authRequired, adminRequired, activeDataset, (req, res) => {
   const row = getRow(req.dataset.id, req.params.rowId); if (!row) return res.status(404).json({ error: '工单不存在。' });
