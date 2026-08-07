@@ -320,3 +320,10 @@ details summary{color:#344b7a;font-weight:700;cursor:pointer}
 .group-collapsed-hint{padding:9px 12px;color:var(--muted);font-size:12px;background:#fafcff;border:1px dashed #dbe5f2;border-top:0;border-radius:0 0 9px 9px}
 .filter-actions #listViewMode{min-width:132px}
 @media(max-width:760px){.group-header{grid-template-columns:auto minmax(0,1fr);}.group-count,.group-statuses{grid-column:2;justify-self:start}.group-rows{padding-left:8px}.filter-actions #listViewMode{min-width:0;flex:1}}
+
+/* Consistent filter controls */
+.filter-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-items:stretch}
+.filter-actions>*{width:100%;min-width:0;margin:0!important;white-space:nowrap;writing-mode:horizontal-tb;overflow:hidden;text-overflow:ellipsis}
+.filter-actions select{width:100%;margin-left:0;padding:8px 10px}
+.filter-actions .link-button{display:flex;align-items:center;justify-content:center}
+@media(max-width:760px){.filter-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
