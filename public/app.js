@@ -50,7 +50,7 @@ function fieldBlock(label,value,style=''){return '<div class="field '+style+'"><
 function compareStyle(pair,side){const main=cleanText(pair.main),similar=cleanText(pair.similar);if(main&&similar&&main===similar)return 'same';if(side==='main')return main?'diff-main':'missing';return similar?'diff-similar':'missing'}
 function comparisonTable(pairs){
   if(!pairs.length)return '<div class="muted">没有识别到重点字段，请展开全部字段。</div>';
-  return '<div class="comparison-table"><div class="comparison-column-head main-head">主工单</div><div class="comparison-column-head similar-head">关联工单</div>'+pairs.map(p=>'<div class="comparison-row">'+fieldBlock(p.label,p.main,compareStyle(p,'main'))+fieldBlock(p.label,p.similar,compareStyle(p,'similar'))+'</div>').join('')+'</div>';
+  return '<div class="comparison-table"><div class="comparison-label-head">字段</div><div class="comparison-column-head main-head">主工单</div><div class="comparison-column-head similar-head">关联工单</div>'+pairs.map(p=>'<div class="comparison-field-label">'+esc(p.label)+'</div><div class="comparison-cell '+compareStyle(p,'main')+'">'+esc(text(p.main))+'</div><div class="comparison-cell '+compareStyle(p,'similar')+'">'+esc(text(p.similar))+'</div>').join('')+'</div>';
 }
 function allFieldPairs(data){
   const keys=Object.keys(data||{}), rows=[], used=new Set();
