@@ -245,7 +245,7 @@ app.post('/api/datasets/:id/archive', authRequired, adminRequired, (req, res) =>
 app.get('/api/datasets/:id/source', authRequired, adminRequired, activeDataset, (req, res) => res.download(req.dataset.source_path, req.dataset.original_name));
 
 app.get('/api/datasets/:id/rows', authRequired, activeDataset, (req, res) => {
-  const q = req.query || {}; const page = Math.max(1, Number.parseInt(q.page || '1', 10) || 1); const pageSize = Math.min(100, Math.max(10, Number.parseInt(q.pageSize || '30', 10) || 30));
+  const q = req.query || {}; const page = Math.max(1, Number.parseInt(q.page || '1', 10) || 1); const pageSize = Math.min(2000, Math.max(10, Number.parseInt(q.pageSize || '30', 10) || 30));
   const where = ['dr.dataset_id=?']; const params = [req.dataset.id];
   const addLike = (field, value) => { if (clean(value)) { where.push(`LOWER(COALESCE(${field},'')) LIKE LOWER(?)`); params.push(`%${clean(value)}%`); } };
   addLike('dr.main_business_group', q.business_group); addLike('dr.ai_route', q.ai_route); addLike('dr.ai_judgment', q.ai_judgment); addLike('dr.human_judgment', q.human_judgment);
@@ -361,5 +361,3 @@ app.post('/api/datasets/:id/rows/:rowId/assign', authRequired, adminRequired, ac
   db.prepare(`INSERT INTO review_results(dataset_id,row_id,review_status,review_conclusion,review_note,reviewer_id,reviewer_name,reviewer_username,claimed_at,reviewed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(dataset_id,row_id) DO UPDATE SET review_status=CASE WHEN review_results.review_status='completed' THEN review_results.review_status ELSE 'in_progress' END, reviewer_id=excluded.reviewer_id, reviewer_name=excluded.reviewer_name, reviewer_username=excluded.reviewer_username, claimed_at=COALESCE(review_results.claimed_at,excluded.claimed_at), updated_at=excluded.updated_at`).run(req.dataset.id,row.id,previous?.review_status||'in_progress',previous?.review_conclusion||null,previous?.review_note||null,user.id,user.display_name,user.username,previous?.claimed_at||timestamp,previous?.reviewed_at||null,timestamp);
   logEvent(req.dataset.id,row.id,'assign',req.user.id,{assigned_to:user.id}); res.json({ ok:true, review:publicReview(reviewFor(req.dataset.id,row.id)) });
 });
-
-

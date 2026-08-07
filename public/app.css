@@ -302,3 +302,21 @@ details summary{color:#344b7a;font-weight:700;cursor:pointer}
   .comparison-label-head,.comparison-column-head,.comparison-field-label,.comparison-cell{padding:9px 10px}
   .comparison-label-head,.comparison-column-head{font-size:13px}
 }
+
+
+/* Grouped main-ticket list */
+.group-header{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:8px;text-align:left;padding:10px 10px;border:1px solid #dbe5f2;border-radius:11px;background:linear-gradient(135deg,#f7faff,#eef5ff);color:var(--text)}
+.group-header:hover{border-color:#a9c6f1;background:#edf5ff}
+.group-chevron{width:18px;color:#3766b0;font-size:18px;text-align:center}
+.group-header-main{min-width:0;display:flex;flex-direction:column;gap:2px}
+.group-header-main strong{font-size:14px;color:#163766}
+.group-title{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.group-count{font-size:12px;color:#315c9b;background:#e4efff;border-radius:999px;padding:3px 8px;white-space:nowrap}
+.group-statuses{display:flex;justify-content:flex-end;gap:4px;flex-wrap:wrap}
+.group-rows{padding:5px 0 0 14px}
+.grouped-row{border-left:3px solid #b9d0f2;border-radius:0 9px 9px 0;margin:0 0 4px;padding-left:9px}
+.grouped-row:hover{background:#f7faff}
+.grouped-row.active{border-left-color:var(--blue);background:var(--blue-soft)}
+.group-collapsed-hint{padding:9px 12px;color:var(--muted);font-size:12px;background:#fafcff;border:1px dashed #dbe5f2;border-top:0;border-radius:0 0 9px 9px}
+.filter-actions #listViewMode{min-width:132px}
+@media(max-width:760px){.group-header{grid-template-columns:auto minmax(0,1fr);}.group-count,.group-statuses{grid-column:2;justify-self:start}.group-rows{padding-left:8px}.filter-actions #listViewMode{min-width:0;flex:1}}
