@@ -226,3 +226,10 @@ details summary{color:#344b7a;font-weight:700;cursor:pointer}
 .all-fields-global .aligned-value{border-right:0}
 .all-fields-grid .same,.all-fields-grid .diff-main,.all-fields-grid .diff-similar,.all-fields-grid .missing{margin:0;border-radius:0}
 @media(max-width:760px){.comparison-row{grid-template-columns:1fr;gap:0;padding:0 10px}.comparison-row .field{padding:9px 0}.all-fields-grid,.all-fields-row{grid-template-columns:110px minmax(0,1fr) minmax(0,1fr)}.all-fields-global{grid-template-columns:110px minmax(0,1fr)}.all-fields-head,.all-field-label,.aligned-value{padding:8px}.comparison-column-head{padding:9px 10px}}
+
+/* Let the paired comparison occupy the full detail width. */
+.pair-grid:has(.comparison-card){grid-template-columns:minmax(0,1fr)}
+.comparison-card{grid-column:1 / -1;width:100%;min-width:0}
+.comparison-table{width:100%;min-width:0}
+.comparison-row .field{min-width:0}
+@media(max-width:760px){.pair-grid:has(.comparison-card){grid-template-columns:1fr}.comparison-card{grid-column:1}}
