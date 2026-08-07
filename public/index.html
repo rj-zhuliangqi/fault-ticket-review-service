@@ -1,0 +1,32 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>故障工单 AI / 人工复核服务</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+  <section id="authView" class="auth-view">
+    <div class="auth-card">
+      <div class="brand-mark">AI</div><h1>故障工单复核中心</h1><p class="muted">服务端保存进度，多人协作复核，责任人可追溯</p>
+      <div id="setupPanel" class="auth-panel hidden"><h2>首次初始化管理员</h2><p class="hint">创建首个管理员后，其他用户注册需要管理员审核。</p><form id="setupForm"><label>姓名<input name="display_name" required /></label><label>登录名<input name="username" pattern="[A-Za-z0-9_.-]{3,32}" required /></label><label>密码<input name="password" type="password" minlength="8" required /></label><button class="primary" type="submit">创建管理员并进入</button></form></div>
+      <div id="loginPanel" class="auth-panel"><h2>登录</h2><form id="loginForm"><label>登录名<input name="username" required autocomplete="username" /></label><label>密码<input name="password" type="password" required autocomplete="current-password" /></label><button class="primary" type="submit">登录</button></form><button id="showRegister" class="link-button">注册新账号</button></div>
+      <div id="registerPanel" class="auth-panel hidden"><h2>注册账号</h2><p class="hint">注册后需要管理员审核通过才能登录。</p><form id="registerForm"><label>姓名<input name="display_name" required /></label><label>登录名<input name="username" pattern="[A-Za-z0-9_.-]{3,32}" required /></label><label>密码<input name="password" type="password" minlength="8" required /></label><button class="primary" type="submit">提交注册</button></form><button id="showLogin" class="link-button">返回登录</button></div>
+    </div>
+  </section>
+  <section id="appView" class="app-view hidden">
+    <header class="topbar"><div><div class="eyebrow">FAULT TICKET REVIEW</div><h1>故障工单 AI / 人工复核中心</h1></div><div class="top-actions"><span id="currentUser" class="user-chip"></span><button id="adminButton" class="ghost hidden">管理后台</button><button id="logoutButton" class="ghost">退出</button></div></header>
+    <main class="page">
+      <section class="toolbar"><div class="toolbar-row"><label class="inline-label">数据批次<select id="datasetSelect"></select></label><span id="datasetMeta" class="muted"></span><div class="spacer"></div><button id="uploadButton" class="ghost admin-only hidden">上传 CSV</button><button id="exportCsvButton" class="ghost admin-only hidden">导出 CSV</button><button id="exportJsonButton" class="ghost admin-only hidden">导出 JSON</button><button id="backupButton" class="ghost admin-only hidden">下载备份</button><input id="fileInput" type="file" accept=".csv,text/csv" hidden /></div><div class="stats" id="stats"></div></section>
+      <section class="workspace">
+        <aside class="list-pane"><div class="pane-title"><strong>工单列表</strong><span id="resultCount" class="muted"></span></div><div class="filters"><input id="keyword" placeholder="搜索工单号、标题、根因、方案、备注" /><div class="filter-grid"><input id="businessGroup" placeholder="业务群组" /><input id="aiRoute" placeholder="AI 路由" /><input id="minSimilarity" type="number" step="0.01" placeholder="相似度 ≥" /><input id="minConfidence" type="number" step="0.01" placeholder="置信度 ≥" /><select id="aiJudgment"><option value="">AI 判断（全部）</option></select><select id="humanJudgment"><option value="">人工判断（全部）</option></select><select id="reviewStatus"><option value="">复核状态（全部）</option><option value="pending">待复核</option><option value="in_progress">复核中</option><option value="completed">已提交</option></select></div><div class="filter-actions"><button id="onlyPending" class="small ghost">只看待复核</button><button id="onlyMine" class="small ghost">只看我的</button><select id="sort"><option value="row">按原始顺序</option><option value="similarity">相似度</option><option value="confidence">AI 置信度</option></select><button id="clearFilters" class="small link-button">清空</button></div></div><div id="rowList" class="row-list"></div><div class="pagination"><button id="prevPage" class="small ghost">上一页</button><span id="pageInfo"></span><button id="nextPage" class="small ghost">下一页</button></div></aside>
+        <section class="detail-pane"><div id="emptyDetail" class="empty-state"><div class="empty-icon">⌁</div><h2>选择一条工单开始复核</h2><p>先在左侧选择记录，领取后即可编辑复核结论和备注。</p></div><div id="detail" class="hidden"></div></section>
+      </section>
+    </main>
+  </section>
+  <div id="adminModal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h2>管理后台</h2><button id="closeAdmin" class="icon-button">×</button></div><div class="admin-tabs"><button data-tab="users" class="active">用户审核</button><button data-tab="datasets">批次管理</button></div><div id="adminContent"></div></div></div>
+  <script src="/app.js"></script>
+</body>
+</html>

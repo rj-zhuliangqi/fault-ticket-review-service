@@ -1,0 +1,18 @@
+﻿{
+  "name": "fault-ticket-review-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "局域网故障工单 AI/人工复核服务",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.0.2"
+  }
+}
