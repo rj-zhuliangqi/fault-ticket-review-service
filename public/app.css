@@ -167,3 +167,26 @@ details summary{color:#344b7a;font-weight:700;cursor:pointer}
   .topbar{height:auto;background:rgba(255,255,255,.96)}
   .judgment-grid,.metric-row{grid-template-columns:1fr}
 }
+:root{--same-bg:#e9f8ef;--same-line:#b9e3c9;--same-text:#147042;--main-diff-bg:#fff0f2;--main-diff-line:#f2b7c2;--main-diff-text:#a62f47;--similar-diff-bg:#f0edff;--similar-diff-line:#c9baf2;--similar-diff-text:#6543a4;--missing-bg:#f5f7fb;--missing-line:#dfe4ed;--missing-text:#98a2b3}
+.filter-grid select{min-width:0;cursor:pointer}
+.reviewer-summary{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px;padding:8px 9px;border:1px dashed #d8e1ef;border-radius:9px;background:#fafbff;color:#536176;font-size:11px}
+.reviewer-summary-label{font-weight:800;color:#344b7a;margin-right:2px}
+.reviewer-count{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;background:#eaf1ff;color:#3156a5}
+.reviewer-count b{font-size:12px;color:#1f3d87}
+.reviewer-count.unassigned{background:#f1f3f7;color:#667085}
+.reviewer-count.unassigned b{color:#667085}
+.comparison-legend{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto;font-size:10px;font-weight:600;color:var(--muted)}
+.legend-item{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.legend-item:before{content:"";width:9px;height:9px;border-radius:3px;border:1px solid currentColor;background:currentColor;opacity:.7}
+.same-legend{color:var(--same-text)}
+.main-diff-legend{color:var(--main-diff-text)}
+.similar-diff-legend{color:var(--similar-diff-text)}
+.missing-legend{color:var(--missing-text)}
+.field.same{background:var(--same-bg);border:1px solid var(--same-line);color:var(--same-text);margin:4px -6px;padding:7px 6px;border-radius:6px}
+.field.diff-main{background:var(--main-diff-bg);border:1px solid var(--main-diff-line);color:var(--main-diff-text);margin:4px -6px;padding:7px 6px;border-radius:6px}
+.field.diff-similar{background:var(--similar-diff-bg);border:1px solid var(--similar-diff-line);color:var(--similar-diff-text);margin:4px -6px;padding:7px 6px;border-radius:6px}
+.field.missing{background:var(--missing-bg);border:1px dashed var(--missing-line);color:var(--missing-text);margin:4px -6px;padding:7px 6px;border-radius:6px}
+.field.same .label,.field.diff-main .label,.field.diff-similar .label,.field.missing .label{color:inherit;opacity:.78}
+.field.same .value,.field.diff-main .value,.field.diff-similar .value{color:var(--text)}
+.field.missing .value{color:var(--missing-text);font-style:italic}
+@media(max-width:760px){.comparison-legend{width:100%;margin-left:0;margin-top:4px}.reviewer-summary{align-items:flex-start}}
