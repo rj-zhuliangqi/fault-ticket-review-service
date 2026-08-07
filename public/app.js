@@ -38,13 +38,44 @@ function conclusionLabel(c){return c==='ai_error'?'AI 判断错误':c==='human_e
 function renderList(){ $('rowList').innerHTML=state.rows.length?state.rows.map(r=>`<div class="row-item ${r.id===state.selectedId?'active':''}" data-id="${esc(r.id)}"><div class="row-main"><span>${esc(r.main_ticket_number||`第 ${r.row_number} 行`)}</span><span class="tag ${statusClass(r.review_status)}">${statusLabel(r.review_status)}</span></div><div class="row-sub">关联：${esc(r.similar_ticket_number||'未填写')}</div><div class="row-sub">${esc(r.main_title||r.similar_title||'无标题')}</div><div class="row-tags"><span class="tag">相似度 ${r.similarity_score??'—'}</span><span class="tag">AI ${esc(r.ai_judgment||'—')}</span>${r.reviewer_name?`<span class="tag orange">${esc(r.reviewer_name)}</span>`:''}${r.review_conclusion?`<span class="tag green">${conclusionLabel(r.review_conclusion)}</span>`:''}</div></div>`).join(''):'<div class="empty-state"><p>没有符合条件的记录。</p></div>';document.querySelectorAll('.row-item').forEach(el=>el.onclick=()=>loadDetail(el.dataset.id)); }
 async function loadDetail(id){state.selectedId=id;try{const out=await api(`/api/datasets/${state.dataset.id}/rows/${id}`);state.current=out.row;renderDetail();renderList()}catch(err){toast(err.message)}}
 function find(data,names){for(const n of names)if(cleanText(data?.[n]))return data[n];return ''}
-const labels={business_group:'业务群组',product:'产品',product_series:'产品系列',model:'型号',software_version:'软件版本',root_cause:'根因',solution:'解决方案',title:'标题',ticket_number:'工单号',incident_id:'事件 ID',report_time:'报告时间'};
-const priority=['business_group','product_series','product','model','software_version','title','ticket_number','incident_id','root_cause','solution','report_time'];
-function basePairs(data){const pairs=[];for(const base of priority){const label=labels[base]||base;const main=find(data,[`main_${base}`,`主${label}`,`主工单${label}`,`主${base}`]);const similar=find(data,[`similar_${base}`,`关联${label}`,`相似工单${label}`,`关联${base}`,`similar_ticket_${base}`]);if(main||similar)pairs.push({base,label,main,similar})}return pairs}
+const labels={business_group:'业务群组',product:'产品',product_series:'产品系列',model:'型号',software_version:'软件版本',root_cause:'根因',solution:'解决方案',title:'标题',ticket_number:'工单号',incident_id:'事件 ID',report_time:'报告时间',reported_at:'报告时间',similarity_score:'相似度',matched_rule_id:'匹配规则 ID',ai_judgment:'AI 判断',ai_label:'AI 标签',ai_route:'AI 路由',ai_confidence:'AI 置信度',ai_reason:'AI 判断理由',ai_judged_at:'AI 判断时间',human_judgment:'人工判断',human_label:'人工标签',human_event_type:'人工事件类型',human_note:'原始人工备注',human_reviewed_at:'原始人工复核时间',human_reviewed_by:'原始人工标注人'};
+const priority=['business_group','product_series','product','model','software_version','title','ticket_number','root_cause','solution','report_time'];
+function baseValueNames(base, side, label){
+  const prefix=side==='main'?'main_':'similar_';
+  const aliases={report_time:['reported_at','report_time','reported_time']};
+  return [prefix+base,...(aliases[base]||[]).map(x=>prefix+x),(side==='main'?'主':'关联')+label,(side==='main'?'主工单':'关联工单')+label,(side==='main'?'主':'关联')+base];
+}
+function basePairs(data){const pairs=[];for(const base of priority){const label=labels[base]||base;const main=find(data,baseValueNames(base,'main',label));const similar=find(data,baseValueNames(base,'similar',label));if(main||similar)pairs.push({base,label,main,similar})}return pairs}
 function fieldBlock(label,value,style=''){return '<div class="field '+style+'"><div class="label">'+esc(label)+'</div><div class="value">'+esc(text(value))+'</div></div>'}
 function compareStyle(pair,side){const main=cleanText(pair.main),similar=cleanText(pair.similar);if(main&&similar&&main===similar)return 'same';if(side==='main')return main?'diff-main':'missing';return similar?'diff-similar':'missing'}
-function ticketCard(title, data, side, pairs){const fields=pairs.map(p=>fieldBlock(p.label,p[side],compareStyle(p,side))).join('');return '<div class="ticket-card"><h3>'+title+'</h3>'+(fields||'<div class="muted">\u6ca1\u6709\u8bc6\u522b\u5230\u91cd\u70b9\u5b57\u6bb5\uff0c\u8bf7\u5c55\u5f00\u5168\u90e8\u5b57\u6bb5\u3002</div>')+'</div>'}
-function detailFields(data){return Object.entries(data||{}).map(([k,v])=>fieldBlock(k, v)).join('')}
+function comparisonTable(pairs){
+  if(!pairs.length)return '<div class="muted">没有识别到重点字段，请展开全部字段。</div>';
+  return '<div class="comparison-table"><div class="comparison-column-head main-head">主工单</div><div class="comparison-column-head similar-head">关联工单</div>'+pairs.map(p=>'<div class="comparison-row">'+fieldBlock(p.label,p.main,compareStyle(p,'main'))+fieldBlock(p.label,p.similar,compareStyle(p,'similar'))+'</div>').join('')+'</div>';
+}
+function allFieldPairs(data){
+  const keys=Object.keys(data||{}), rows=[], used=new Set();
+  const humanLabel=(base)=>labels[base]||base;
+  for(const key of keys){
+    if(used.has(key))continue;
+    if(key.startsWith('main_')){
+      const base=key.slice(5), similarKey='similar_'+base;
+      used.add(key); if(keys.includes(similarKey))used.add(similarKey);
+      rows.push({label:humanLabel(base), main:data[key], similar:keys.includes(similarKey)?data[similarKey]:'', paired:keys.includes(similarKey)});
+    } else if(key.startsWith('similar_')){
+      const base=key.slice(8), mainKey='main_'+base;
+      if(keys.includes(mainKey))continue;
+      used.add(key); rows.push({label:humanLabel(base), main:'', similar:data[key], paired:true});
+    } else {
+      used.add(key); rows.push({label:humanLabel(key), value:data[key], paired:false});
+    }
+  }
+  return rows;
+}
+function alignedValue(value,style=''){return '<div class="aligned-value '+style+'">'+esc(text(value))+'</div>'}
+function detailFields(data){
+  const rows=allFieldPairs(data); if(!rows.length)return '<div class="muted">没有字段。</div>';
+  return '<div class="all-fields-grid"><div class="all-fields-head">字段</div><div class="all-fields-head">主工单</div><div class="all-fields-head">关联工单</div>'+rows.map(row=>row.paired?'<div class="all-fields-row"><div class="all-field-label">'+esc(row.label)+'</div>'+alignedValue(row.main,compareStyle(row,'main'))+alignedValue(row.similar,compareStyle(row,'similar'))+'</div>':'<div class="all-fields-global"><div class="all-field-label">'+esc(row.label)+'</div><div class="aligned-value global-value">'+esc(text(row.value))+'</div></div>').join('')+'</div>';
+}
 function renderDetail(){
   const row=state.current;if(!row)return;
   const d=row.data||{},r=row.review||{},draft=row.draft||{};
@@ -73,7 +104,7 @@ function renderDetail(){
       <div class="review-meta original-meta"><div class="label">原始人工标注人</div><div class="value">${esc(originalReviewer||'—')}<div class="muted">${fmtTime(originalTime)}</div></div></div>
     </div>
     <div class="section-title comparison-title"><span>主工单与关联工单对比</span><span class="comparison-nav"><button id="prevRecord" class="small ghost">上一条</button><button id="nextRecord" class="small ghost">下一条</button></span><span class="comparison-legend"><span class="legend-item same-legend">相同</span><span class="legend-item main-diff-legend">主工单不同</span><span class="legend-item similar-diff-legend">关联工单不同</span><span class="legend-item missing-legend">未填写</span></span></div>
-    <div class="pair-grid">${ticketCard('主工单',d,'main',pairs)}${ticketCard('关联工单',d,'similar',pairs)}</div>
+    <div class="pair-grid"><div class="ticket-card comparison-card">${comparisonTable(pairs)}</div></div>
     <div class="section-title">判断信息</div>
     <div class="decision-grid">
       <div class="decision-card source-decision-card">

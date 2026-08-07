@@ -203,3 +203,26 @@ details summary{color:#344b7a;font-weight:700;cursor:pointer}
 .reviewer-count.original{background:#f1eaff;color:#6847a7}
 .reviewer-count.original b{color:#59399b}
 @media(max-width:760px){.comparison-nav{order:2;margin-left:0}.comparison-title .comparison-legend{order:3;width:100%}.submit-review-btn{margin-left:0}}
+
+/* aligned paired comparison and full-field layout */
+.comparison-card{padding:0;overflow:hidden}
+.comparison-table{display:grid;grid-template-columns:1fr 1fr;gap:0;background:#fff}
+.comparison-column-head{padding:11px 14px;color:#fff;font-weight:800;font-size:14px}
+.comparison-column-head.main-head{background:linear-gradient(135deg,#2563eb,#4f46e5)}
+.comparison-column-head.similar-head{background:linear-gradient(135deg,#079669,#0b7494)}
+.comparison-row{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 14px}
+.comparison-row+.comparison-row{border-top:1px solid #edf1f5}
+.comparison-row .field{height:100%;margin:0;padding:10px 0;border-bottom:0}
+.comparison-row .field .label{font-weight:800}
+.field .label{font-weight:800;color:#43516b}
+.all-fields{padding:0;overflow:hidden}
+.all-fields-grid{display:grid;grid-template-columns:170px minmax(0,1fr) minmax(0,1fr);background:#fff}
+.all-fields-head{padding:10px 12px;background:#f4f7fc;color:#51627e;font-size:12px;font-weight:800;border-bottom:1px solid #dfe6f1}
+.all-fields-row{grid-column:1/-1;display:grid;grid-template-columns:170px minmax(0,1fr) minmax(0,1fr);align-items:stretch;border-bottom:1px solid #edf1f5}
+.all-field-label{padding:10px 12px;font-weight:800;color:#344b7a;background:#fbfcff;border-right:1px solid #edf1f5;word-break:break-word}
+.aligned-value{min-width:0;padding:10px 12px;white-space:pre-wrap;word-break:break-word;border-right:1px solid #edf1f5}
+.all-fields-row .aligned-value:last-child{border-right:0}
+.all-fields-global{grid-column:1/-1;display:grid;grid-template-columns:170px minmax(0,1fr);align-items:stretch;border-bottom:1px solid #edf1f5}
+.all-fields-global .aligned-value{border-right:0}
+.all-fields-grid .same,.all-fields-grid .diff-main,.all-fields-grid .diff-similar,.all-fields-grid .missing{margin:0;border-radius:0}
+@media(max-width:760px){.comparison-row{grid-template-columns:1fr;gap:0;padding:0 10px}.comparison-row .field{padding:9px 0}.all-fields-grid,.all-fields-row{grid-template-columns:110px minmax(0,1fr) minmax(0,1fr)}.all-fields-global{grid-template-columns:110px minmax(0,1fr)}.all-fields-head,.all-field-label,.aligned-value{padding:8px}.comparison-column-head{padding:9px 10px}}
