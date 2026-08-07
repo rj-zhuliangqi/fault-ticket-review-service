@@ -327,3 +327,35 @@ details summary{color:#344b7a;font-weight:700;cursor:pointer}
 .filter-actions select{width:100%;margin-left:0;padding:8px 10px}
 .filter-actions .link-button{display:flex;align-items:center;justify-content:center}
 @media(max-width:760px){.filter-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+
+/* Keep grouped-list actions visually consistent. */
+.filter-actions>*{
+  height:38px;
+  min-height:38px;
+  box-sizing:border-box;
+  padding:0 10px!important;
+  border:1px solid var(--line);
+  border-radius:9px;
+  background:#fff;
+  color:var(--text);
+  font-size:12px;
+  line-height:36px;
+}
+.filter-actions select{
+  appearance:auto;
+  line-height:normal;
+}
+.filter-actions button{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.filter-actions .link-button{
+  color:var(--blue);
+  background:#fff;
+}
+.filter-actions>*:hover{border-color:#a9c6f1;background:#f7faff}
+.filter-actions .active{border-color:var(--blue);background:var(--blue-soft);color:#0d4ea6}
+.group-rows{padding-top:5px}
+.ticket-group.collapsed .group-rows{display:none}
