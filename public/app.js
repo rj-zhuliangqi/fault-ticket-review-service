@@ -5,7 +5,7 @@ const text = (value, fallback='未填写') => cleanText(value) || fallback;
 const cleanText = (value) => String(value ?? '').trim();
 const fmtTime = (value) => value ? new Date(value).toLocaleString('zh-CN',{hour12:false}) : '—';
 function toast(message, kind='') { const el=$('toast'); el.textContent=message; el.className=`toast show ${kind}`; clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.className='toast',3200); }
-async function api(url, options={}) { const response=await fetch(url,{credentials:'include',...options}); const ct=response.headers.get('content-type')||''; const body=ct.includes('application/json')?await response.json():await response.text(); if(!response.ok) throw new Error(body?.error||body||`请求失败（${response.status}）`); return body; }
+async function api(url, options={}) { const response=await fetch(url,{credentials:'include',...options}); const ct=response.headers.get('content-type')||''; const body=ct.includes('application/json')?await response.json():await response.text(); if(!response.ok){const error=new Error(body?.error||body||`\u8bf7\u6c42\u5931\u8d25\uff08${response.status}\uff09`);error.status=response.status;error.code=body?.code;throw error;} return body; }
 function formObject(form){ return Object.fromEntries(new FormData(form).entries()); }
 function showAuth(panel){ ['setupPanel','loginPanel','registerPanel'].forEach(id=>$(id).classList.toggle('hidden',id!==panel)); }
 async function boot(){
@@ -86,7 +86,7 @@ function renderDetail(){
   const row=state.current;if(!row)return;
   const d=row.data||{},r=row.review||{},draft=row.draft||{};
   const pairs=basePairs(d);
-  const editable=state.user.role==='admin'||(r.reviewer_id===state.user.id&&r.review_status==='in_progress');
+  const pending=!r.review_status||r.review_status==='pending'; const editable=state.user.role==='admin'||pending||(r.reviewer_id===state.user.id&&r.review_status==='in_progress');
   const local=readLocal(row.id);
   let choice=draft.review_conclusion||r.review_conclusion||local?.review_conclusion||'';
   let note=draft.review_note??r.review_note??local?.review_note??'';
@@ -100,12 +100,12 @@ function renderDetail(){
   $('detail').innerHTML=`
     <div class="detail-head">
       <div><div class="eyebrow">ROW ${row.row_number}</div><h2 class="detail-title">${esc(find(d,['main_title','主工单标题'])||d.main_ticket_number||'工单复核')}</h2><div class="muted">主工单 ${esc(find(d,['main_ticket_number','主工单号'])||'—')} · 关联工单 ${esc(find(d,['similar_ticket_number','关联工单号'])||'—')}</div></div>
-      <div class="detail-actions">${!r.review_status||r.review_status==='pending'?'<button id="claimBtn" class="primary" style="width:auto;margin:0">领取并开始复核</button>':''}${state.user.role==='admin'&&r.review_status?'<button id="reopenBtn" class="ghost">管理员重开</button>':''}</div>
+      <div class="detail-actions">${pending&&state.user.role!=='admin'?'<span class="muted">\u9996\u6b21\u7f16\u8f91\u5c06\u81ea\u52a8\u9886\u53d6</span>':''}${state.user.role==='admin'&&r.review_status?'<button id="reopenBtn" class="ghost">\u7ba1\u7406\u5458\u91cd\u5f00</button>':''}</div>
     </div>
     <div class="review-banner">
-      <div class="review-meta status-meta"><div class="label">当前状态</div><div class="value"><span class="tag ${statusClass(r.review_status)}">${statusLabel(r.review_status)}</span></div></div>
-      <div class="review-meta owner-meta"><div class="label">当前复核负责人</div><div class="value">${esc(r.reviewer_name||'—')} <span class="muted">${r.reviewer_username?`(${esc(r.reviewer_username)})`:''}</span></div></div>
-      <div class="review-meta"><div class="label">最近保存</div><div class="value">${fmtTime(draft.updated_at||r.updated_at)}</div></div>
+      <div class="review-meta status-meta"><div class="label">当前状态</div><div class="value review-status-value"><span class="tag ${statusClass(r.review_status)}">${statusLabel(r.review_status)}</span></div></div>
+      <div class="review-meta owner-meta"><div class="label">当前复核负责人</div><div class="value review-owner-value">${esc(r.reviewer_name||'—')} <span class="muted">${r.reviewer_username?`(${esc(r.reviewer_username)})`:''}</span></div></div>
+      <div class="review-meta"><div class="label">最近保存</div><div class="value review-saved-value">${fmtTime(draft.updated_at||r.updated_at)}</div></div>
       <div class="review-meta"><div class="label">正式提交</div><div class="value">${fmtTime(r.reviewed_at)}</div></div>
       <div class="review-meta original-meta"><div class="label">原始人工标注人</div><div class="value">${esc(originalReviewer||'—')}<div class="muted">${fmtTime(originalTime)}</div></div></div>
     </div>
@@ -129,18 +129,48 @@ function renderDetail(){
       <div class="decision-card review-decision-card">
         <h3>本次复核结论</h3>
         <div class="choice-row"><button class="choice ai-error-choice ${choice==='ai_error'?'selected':''}" data-choice="ai_error" ${editable?'':'disabled'}><strong>1 · AI 判断错误</strong><small>人工标注正确，AI 有误</small></button><button class="choice human-error-choice ${choice==='human_error'?'selected':''}" data-choice="human_error" ${editable?'':'disabled'}><strong>2 · 业务标注错误</strong><small>AI 判断正确，人工有误</small></button><button class="choice uncertain-choice ${choice==='uncertain'?'selected':''}" data-choice="uncertain" ${editable?'':'disabled'}><strong>3 · 暂不确定</strong><small>信息不足，需要后续确认</small></button></div>
-        <label class="field-label">本次复核备注<textarea id="reviewNote" ${editable?'':'disabled'} placeholder="记录判断依据、需要补充的信息或后续动作">${esc(note)}</textarea></label><div class="save-line"><span id="saveState">${editable?'编辑后自动保存草稿':'领取后才能编辑'}</span>${editable?'<button id="submitBtn" class="primary submit-review-btn">提交复核</button>':''}</div>
+        <label class="field-label">本次复核备注<textarea id="reviewNote" ${editable?'':'disabled'} placeholder="记录判断依据、需要补充的信息或后续动作">${esc(note)}</textarea></label><div class="save-line"><span id="saveState">${editable?(pending?'\u9996\u6b21\u7f16\u8f91\u5c06\u81ea\u52a8\u9886\u53d6\uff0c\u8349\u7a3f\u81ea\u52a8\u4fdd\u5b58':'\u7f16\u8f91\u540e\u81ea\u52a8\u4fdd\u5b58\u8349\u7a3f'):(r.review_status==='completed'?'\u5df2\u63d0\u4ea4\uff0c\u53ea\u8bfb':'\u5f53\u524d\u5de5\u5355\u5df2\u7531\u5176\u4ed6\u590d\u6838\u4eba\u9886\u53d6')}</span>${editable?'<button id="submitBtn" class="primary submit-review-btn">\u63d0\u4ea4\u590d\u6838</button>':''}</div>
       </div>
     </div>
     <details><summary>展开全部字段（${Object.keys(d).length} 个）</summary><div class="all-fields">${detailFields(d)}</div></details>`;
   document.querySelectorAll('[data-choice]').forEach(btn=>btn.onclick=()=>{if(!editable)return;document.querySelectorAll('[data-choice]').forEach(x=>x.classList.remove('selected'));btn.classList.add('selected');scheduleDraft(btn.dataset.choice,$('reviewNote').value)});
   if($('reviewNote'))$('reviewNote').oninput=()=>scheduleDraft(document.querySelector('.choice.selected')?.dataset.choice||choice,$('reviewNote').value);
-  if($('claimBtn'))$('claimBtn').onclick=claim;if($('submitBtn'))$('submitBtn').onclick=submit;if($('reopenBtn'))$('reopenBtn').onclick=reopen;if($('prevRecord'))$('prevRecord').onclick=()=>moveRecord(-1);if($('nextRecord'))$('nextRecord').onclick=()=>moveRecord(1);const currentIndex=state.rows.findIndex(x=>x.id===row.id);if($('prevRecord'))$('prevRecord').disabled=state.page<=1&&currentIndex<=0;if($('nextRecord'))$('nextRecord').disabled=state.page>=state.pages&&currentIndex>=state.rows.length-1;
+  if($('submitBtn'))$('submitBtn').onclick=submit;if($('reopenBtn'))$('reopenBtn').onclick=reopen;if($('prevRecord'))$('prevRecord').onclick=()=>moveRecord(-1);if($('nextRecord'))$('nextRecord').onclick=()=>moveRecord(1);const currentIndex=state.rows.findIndex(x=>x.id===row.id);if($('prevRecord'))$('prevRecord').disabled=state.page<=1&&currentIndex<=0;if($('nextRecord'))$('nextRecord').disabled=state.page>=state.pages&&currentIndex>=state.rows.length-1;
 }
 async function moveRecord(step){const index=state.rows.findIndex(r=>r.id===state.selectedId);if(index>=0&&index+step>=0&&index+step<state.rows.length){await loadDetail(state.rows[index+step].id);return;}if(step>0&&state.page<state.pages){state.page+=1;await loadRows();if(state.rows[0]&&state.rows[0].id!==state.selectedId)await loadDetail(state.rows[0].id);return;}if(step<0&&state.page>1){state.page-=1;await loadRows();if(state.rows.length&&state.rows[state.rows.length-1].id!==state.selectedId)await loadDetail(state.rows[state.rows.length-1].id);return;}toast(step>0?'已经是最后一条。':'已经是第一条。');}
 document.addEventListener('keydown',(event)=>{if($('appView').classList.contains('hidden')||['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;if(event.key==='ArrowLeft')moveRecord(-1);if(event.key==='ArrowRight')moveRecord(1);if(event.key==='1')document.querySelector('[data-choice="ai_error"]')?.click();if(event.key==='2')document.querySelector('[data-choice="human_error"]')?.click();if(event.key==='3')document.querySelector('[data-choice="uncertain"]')?.click();});
 function localKey(id){return `fault-review-local:${state.dataset.id}:${id}`};function readLocal(id){try{return JSON.parse(localStorage.getItem(localKey(id))||'null')}catch{return null}}function saveLocal(id,payload){localStorage.setItem(localKey(id),JSON.stringify({...payload,updated_at:new Date().toISOString()}))}
-function scheduleDraft(conclusion,note){if(!state.current)return;saveLocal(state.current.id,{review_conclusion:conclusion||'',review_note:note||''});$('saveState').textContent='正在保存草稿…';clearTimeout(state.saveTimer);state.saveTimer=setTimeout(async()=>{try{const out=await api(`/api/datasets/${state.dataset.id}/rows/${state.current.id}/draft`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({review_conclusion:conclusion||'',review_note:note||''})});state.current.review=out.review;state.current.draft=out.draft;saveLocal(state.current.id,{review_conclusion:out.draft.review_conclusion||'',review_note:out.draft.review_note||''});$('saveState').textContent=`已自动保存 ${fmtTime(out.draft.updated_at)}`;await loadDatasets();}catch(err){$('saveState').textContent=`保存失败：${err.message}`}} ,500)}
+function scheduleDraft(conclusion,note){
+  if(!state.current)return;
+  const rowId=state.current.id;
+  saveLocal(rowId,{review_conclusion:conclusion||'',review_note:note||''});
+  $('saveState').textContent='\u6b63\u5728\u4fdd\u5b58\u8349\u7a3f\u2026';
+  clearTimeout(state.saveTimer);
+  state.saveTimer=setTimeout(async()=>{
+    try{
+      const out=await api(`/api/datasets/${state.dataset.id}/rows/${rowId}/draft`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({review_conclusion:conclusion||'',review_note:note||''})});
+      if(state.current?.id!==rowId)return;
+      state.current.review=out.review;
+      state.current.draft=out.draft;
+      saveLocal(rowId,{review_conclusion:out.draft.review_conclusion||'',review_note:out.draft.review_note||''});
+      $('saveState').textContent=`\u5df2\u81ea\u52a8\u4fdd\u5b58 ${fmtTime(out.draft.updated_at)}`;
+      const statusValue=document.querySelector('.review-status-value');
+      if(statusValue)statusValue.innerHTML=`<span class="tag ${statusClass(out.review?.review_status)}">${statusLabel(out.review?.review_status)}</span>`;
+      const ownerValue=document.querySelector('.review-owner-value');
+      if(ownerValue)ownerValue.innerHTML=`${esc(out.review?.reviewer_name||'\u2014')} <span class="muted">${out.review?.reviewer_username?`(${esc(out.review.reviewer_username)})`:''}</span>`;
+      const savedValue=document.querySelector('.review-saved-value');
+      if(savedValue)savedValue.textContent=fmtTime(out.draft.updated_at||out.review?.updated_at);
+      await loadDatasets();
+    }catch(err){
+      if(state.current?.id!==rowId)return;
+      $('saveState').textContent=`\u4fdd\u5b58\u5931\u8d25\uff1a${err.message}`;
+      if(err.code==='ROW_CLAIMED'||err.code==='ROW_COMPLETED'){
+        toast(err.message);
+        await loadDetail(rowId);
+      }
+    }
+  },500)
+}
 async function claim(){try{const out=await api(`/api/datasets/${state.dataset.id}/rows/${state.current.id}/claim`,{method:'POST'});state.current=out.row;toast('已领取，当前工单归你负责。');await loadDatasets()}catch(err){toast(err.message)}}
 async function submit(){
   const choice=document.querySelector('.choice.selected')?.dataset.choice;

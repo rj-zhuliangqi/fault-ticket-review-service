@@ -164,6 +164,21 @@ function reviewFor(datasetId, rowIdValue) { return db.prepare('SELECT * FROM rev
 function draftFor(datasetId, rowIdValue) { return db.prepare('SELECT * FROM review_drafts WHERE dataset_id=? AND row_id=?').get(datasetId, rowIdValue) || null; }
 function getRow(datasetId, rowIdValue) { return db.prepare('SELECT * FROM dataset_rows WHERE dataset_id=? AND id=?').get(datasetId, rowIdValue); }
 function editableBy(user, review) { return Boolean(user && (user.role === 'admin' || (review && review.reviewer_id === user.id && review.review_status === 'in_progress'))); }
+function autoClaimPending(req, row) {
+  let review = reviewFor(req.dataset.id, row.id);
+  if (review) return review;
+  const reviewer = req.user;
+  const timestamp = now();
+  const result = db.prepare(`
+    INSERT INTO review_results(
+      dataset_id,row_id,review_status,review_conclusion,review_note,
+      reviewer_id,reviewer_name,reviewer_username,claimed_at,reviewed_at,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(dataset_id,row_id) DO NOTHING
+  `).run(req.dataset.id,row.id,'in_progress',null,null,reviewer.id,reviewer.display_name,reviewer.username,timestamp,null,timestamp);
+  if (result.changes) logEvent(req.dataset.id,row.id,'claim',reviewer.id,{automatic:true});
+  return reviewFor(req.dataset.id,row.id);
+}
 function createSession(res, userId) { const token = randomBytes(32).toString('hex'); const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString(); db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at) VALUES(?,?,?,?,?)').run(randomUUID(), userId, tokenHash(token), now(), expires); setCookie(res, 'review_sid', token, SESSION_DAYS * 86400); }
 function publicReview(review) {
   if (!review) return null;
@@ -280,8 +295,11 @@ app.post('/api/datasets/:id/rows/:rowId/claim', authRequired, activeDataset, (re
 });
 app.put('/api/datasets/:id/rows/:rowId/draft', authRequired, activeDataset, (req, res) => {
   const row = getRow(req.dataset.id, req.params.rowId); if (!row) return res.status(404).json({ error: '工单不存在。' });
-  let review = reviewFor(req.dataset.id, row.id);
-  if (!editableBy(req.user, review)) return res.status(403).json({ error: '请先领取该工单，或该工单已被其他人领取/提交。' });
+  let review = autoClaimPending(req, row);
+  if (!editableBy(req.user, review)) {
+    if (review?.review_status === 'completed') return res.status(409).json({ error: '\u8be5\u5de5\u5355\u5df2\u63d0\u4ea4\uff0c\u5f53\u524d\u4e3a\u53ea\u8bfb\u3002', code: 'ROW_COMPLETED' });
+    return res.status(409).json({ error: `\u8be5\u5de5\u5355\u5df2\u7531 ${review?.reviewer_name || review?.reviewer_username || '\u5176\u4ed6\u7528\u6237'} \u9886\u53d6\u3002`, code: 'ROW_CLAIMED' });
+  }
   const conclusion = clean(req.body?.review_conclusion) || null; const note = String(req.body?.review_note ?? ''); const timestamp = now();
   db.prepare(`INSERT INTO review_drafts(dataset_id,row_id,review_conclusion,review_note,saved_by,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(dataset_id,row_id) DO UPDATE SET review_conclusion=excluded.review_conclusion, review_note=excluded.review_note, saved_by=excluded.saved_by, updated_at=excluded.updated_at`).run(req.dataset.id, row.id, conclusion, note, req.user.id, timestamp);
   db.prepare('UPDATE review_results SET review_conclusion=?, review_note=?, updated_at=? WHERE dataset_id=? AND row_id=? AND review_status=\'in_progress\'').run(conclusion, note, timestamp, req.dataset.id, row.id);
@@ -291,7 +309,11 @@ app.put('/api/datasets/:id/rows/:rowId/draft', authRequired, activeDataset, (req
 });
 app.post('/api/datasets/:id/rows/:rowId/submit', authRequired, activeDataset, (req, res) => {
   const row = getRow(req.dataset.id, req.params.rowId); if (!row) return res.status(404).json({ error: '工单不存在。' });
-  const existing = reviewFor(req.dataset.id, row.id); if (!editableBy(req.user, existing)) return res.status(403).json({ error: '只有负责人或管理员可以提交该工单。' });
+  const existing = autoClaimPending(req, row);
+  if (!editableBy(req.user, existing)) {
+    if (existing?.review_status === 'completed') return res.status(409).json({ error: '\u8be5\u5de5\u5355\u5df2\u63d0\u4ea4\uff0c\u5f53\u524d\u4e3a\u53ea\u8bfb\u3002', code: 'ROW_COMPLETED' });
+    return res.status(409).json({ error: `\u8be5\u5de5\u5355\u5df2\u7531 ${existing?.reviewer_name || existing?.reviewer_username || '\u5176\u4ed6\u7528\u6237'} \u9886\u53d6\u3002`, code: 'ROW_CLAIMED' });
+  }
   const conclusion = clean(req.body?.review_conclusion || existing?.review_conclusion); if (!['ai_error', 'human_error', 'uncertain'].includes(conclusion)) return res.status(400).json({ error: '请选择有效的复核结论。' });
   const note = String(req.body?.review_note ?? existing?.review_note ?? ''); const timestamp = now(); const submitter = req.user;
   db.prepare(`INSERT INTO review_results(dataset_id,row_id,review_status,review_conclusion,review_note,reviewer_id,reviewer_name,reviewer_username,claimed_at,reviewed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(dataset_id,row_id) DO UPDATE SET review_status='completed', review_conclusion=excluded.review_conclusion, review_note=excluded.review_note, reviewer_id=excluded.reviewer_id, reviewer_name=excluded.reviewer_name, reviewer_username=excluded.reviewer_username, claimed_at=COALESCE(review_results.claimed_at,excluded.claimed_at), reviewed_at=excluded.reviewed_at, updated_at=excluded.updated_at`).run(req.dataset.id, row.id, 'completed', conclusion, note, submitter.id, submitter.display_name, submitter.username, existing?.claimed_at || timestamp, timestamp, timestamp);
