@@ -59,13 +59,13 @@ CREATE TABLE IF NOT EXISTS review_results (
   row_id TEXT NOT NULL REFERENCES dataset_rows(id) ON DELETE CASCADE,
   review_status TEXT NOT NULL CHECK(review_status IN ('in_progress','completed')),
   review_conclusion TEXT, review_note TEXT, reviewer_id TEXT REFERENCES users(id),
-  reviewer_name TEXT, reviewer_username TEXT, claimed_at TEXT, reviewed_at TEXT, updated_at TEXT NOT NULL,
+  reviewer_name TEXT, reviewer_username TEXT, claimed_at TEXT, reviewed_at TEXT, is_key_case INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
   PRIMARY KEY(dataset_id, row_id)
 );
 CREATE TABLE IF NOT EXISTS review_drafts (
   dataset_id TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
   row_id TEXT NOT NULL REFERENCES dataset_rows(id) ON DELETE CASCADE,
-  review_conclusion TEXT, review_note TEXT, saved_by TEXT REFERENCES users(id), updated_at TEXT NOT NULL,
+  review_conclusion TEXT, review_note TEXT, is_key_case INTEGER NOT NULL DEFAULT 0, saved_by TEXT REFERENCES users(id), updated_at TEXT NOT NULL,
   PRIMARY KEY(dataset_id, row_id)
 );
 CREATE TABLE IF NOT EXISTS review_events (
@@ -74,6 +74,13 @@ CREATE TABLE IF NOT EXISTS review_events (
   event_type TEXT NOT NULL, actor_id TEXT REFERENCES users(id), payload_json TEXT, created_at TEXT NOT NULL
 );
 `);
+
+function ensureColumn(table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((item) => item.name);
+  if (!columns.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+ensureColumn('review_results', 'is_key_case', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('review_drafts', 'is_key_case', 'INTEGER NOT NULL DEFAULT 0');
 
 const app = express();
 app.disable('x-powered-by');
@@ -163,7 +170,7 @@ function csvText(headers, rows) { return `\uFEFF${headers.map(csvCell).join(',')
 function reviewFor(datasetId, rowIdValue) { return db.prepare('SELECT * FROM review_results WHERE dataset_id=? AND row_id=?').get(datasetId, rowIdValue) || null; }
 function draftFor(datasetId, rowIdValue) { return db.prepare('SELECT * FROM review_drafts WHERE dataset_id=? AND row_id=?').get(datasetId, rowIdValue) || null; }
 function getRow(datasetId, rowIdValue) { return db.prepare('SELECT * FROM dataset_rows WHERE dataset_id=? AND id=?').get(datasetId, rowIdValue); }
-function editableBy(user, review) { return Boolean(user && (user.role === 'admin' || (review && review.reviewer_id === user.id && review.review_status === 'in_progress'))); }
+function editableBy(user, review) { return Boolean(user && (user.role === 'admin' || (review && review.reviewer_id === user.id && ['in_progress', 'completed'].includes(review.review_status)))); }
 function autoClaimPending(req, row) {
   let review = reviewFor(req.dataset.id, row.id);
   if (review) return review;
@@ -182,9 +189,9 @@ function autoClaimPending(req, row) {
 function createSession(res, userId) { const token = randomBytes(32).toString('hex'); const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString(); db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at) VALUES(?,?,?,?,?)').run(randomUUID(), userId, tokenHash(token), now(), expires); setCookie(res, 'review_sid', token, SESSION_DAYS * 86400); }
 function publicReview(review) {
   if (!review) return null;
-  return { review_status: review.review_status, review_conclusion: review.review_conclusion, review_note: review.review_note, reviewer_id: review.reviewer_id, reviewer_name: review.reviewer_name, reviewer_username: review.reviewer_username, claimed_at: review.claimed_at, reviewed_at: review.reviewed_at, updated_at: review.updated_at };
+  return { review_status: review.review_status, review_conclusion: review.review_conclusion, review_note: review.review_note, is_key_case: Boolean(review.is_key_case), reviewer_id: review.reviewer_id, reviewer_name: review.reviewer_name, reviewer_username: review.reviewer_username, claimed_at: review.claimed_at, reviewed_at: review.reviewed_at, updated_at: review.updated_at };
 }
-function publicDraft(draft) { return draft ? { review_conclusion: draft.review_conclusion, review_note: draft.review_note, saved_by: draft.saved_by, updated_at: draft.updated_at } : null; }
+function publicDraft(draft) { return draft ? { review_conclusion: draft.review_conclusion, review_note: draft.review_note, is_key_case: Boolean(draft.is_key_case), saved_by: draft.saved_by, updated_at: draft.updated_at } : null; }
 
 app.get('/api/setup/status', (req, res) => {
   const admins = Number(db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin'").get().n || 0);
@@ -273,9 +280,11 @@ app.get('/api/datasets/:id/rows', authRequired, activeDataset, (req, res) => {
   if (q.maxConfidence !== undefined && q.maxConfidence !== '') { where.push('dr.ai_confidence<=?'); params.push(Number(q.maxConfidence)); }
   const status = clean(q.review_status || q.status); if (status === 'pending') where.push('rr.review_status IS NULL'); else if (status === 'in_progress') { where.push("rr.review_status='in_progress'"); if (req.user.role !== 'admin' && q.mine === '1') { where.push('rr.reviewer_id=?'); params.push(req.user.id); } } else if (status === 'completed') where.push("rr.review_status='completed'");
   if (q.mine === '1' && !status) { where.push('rr.reviewer_id=?'); params.push(req.user.id); }
+  if (q.key_case === '1') where.push('COALESCE(rr.is_key_case,0)=1');
+  if (q.key_case === '0') where.push('COALESCE(rr.is_key_case,0)=0');
   const whereSql = where.join(' AND '); const groupCountExpr = "COUNT(*) OVER (PARTITION BY CASE WHEN NULLIF(TRIM(COALESCE(dr.main_ticket_number,'')),'') IS NULL THEN dr.id ELSE dr.main_ticket_number END)"; const reportTimeExpr = "COALESCE(json_extract(dr.data_json, '$.main_reported_at'), json_extract(dr.data_json, '$.main_report_time'), json_extract(dr.data_json, '$.main_report_date'), '')"; const sortMap = { similarity: 'dr.similarity_score', confidence: 'dr.ai_confidence', row: 'dr.row_number', group_count: groupCountExpr, report_time: reportTimeExpr }; const order = sortMap[clean(q.sort)] || groupCountExpr; const direction = String(q.direction).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
   const total = Number(db.prepare(`SELECT COUNT(*) AS n FROM dataset_rows dr LEFT JOIN review_results rr ON rr.dataset_id=dr.dataset_id AND rr.row_id=dr.id WHERE ${whereSql}`).get(...params).n || 0);
-  const rows = db.prepare(`SELECT dr.id,dr.row_number,dr.main_ticket_number,dr.similar_ticket_number,dr.main_business_group,dr.ai_route,dr.ai_judgment,dr.human_judgment,dr.similarity_score,dr.ai_confidence,dr.main_title,dr.similar_title,rr.review_status,rr.review_conclusion,rr.reviewer_id,rr.reviewer_name,rr.reviewer_username,rr.claimed_at,rr.reviewed_at,rr.updated_at FROM dataset_rows dr LEFT JOIN review_results rr ON rr.dataset_id=dr.dataset_id AND rr.row_id=dr.id WHERE ${whereSql} ORDER BY ${order} ${direction}, dr.row_number ASC LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize);
+  const rows = db.prepare(`SELECT dr.id,dr.row_number,dr.main_ticket_number,dr.similar_ticket_number,dr.main_business_group,dr.ai_route,dr.ai_judgment,dr.human_judgment,dr.similarity_score,dr.ai_confidence,dr.main_title,dr.similar_title,rr.review_status,rr.review_conclusion,rr.is_key_case,rr.reviewer_id,rr.reviewer_name,rr.reviewer_username,rr.claimed_at,rr.reviewed_at,rr.updated_at FROM dataset_rows dr LEFT JOIN review_results rr ON rr.dataset_id=dr.dataset_id AND rr.row_id=dr.id WHERE ${whereSql} ORDER BY ${order} ${direction}, dr.row_number ASC LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize);
   res.json({ rows, page, pageSize, total, pages: Math.max(1, Math.ceil(total / pageSize)) });
 });
 app.get('/api/datasets/:id/rows/:rowId', authRequired, activeDataset, (req, res) => {
@@ -300,10 +309,10 @@ app.put('/api/datasets/:id/rows/:rowId/draft', authRequired, activeDataset, (req
     if (review?.review_status === 'completed') return res.status(409).json({ error: '\u8be5\u5de5\u5355\u5df2\u63d0\u4ea4\uff0c\u5f53\u524d\u4e3a\u53ea\u8bfb\u3002', code: 'ROW_COMPLETED' });
     return res.status(409).json({ error: `\u8be5\u5de5\u5355\u5df2\u7531 ${review?.reviewer_name || review?.reviewer_username || '\u5176\u4ed6\u7528\u6237'} \u9886\u53d6\u3002`, code: 'ROW_CLAIMED' });
   }
-  const conclusion = clean(req.body?.review_conclusion) || null; const note = String(req.body?.review_note ?? ''); const timestamp = now();
-  db.prepare(`INSERT INTO review_drafts(dataset_id,row_id,review_conclusion,review_note,saved_by,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(dataset_id,row_id) DO UPDATE SET review_conclusion=excluded.review_conclusion, review_note=excluded.review_note, saved_by=excluded.saved_by, updated_at=excluded.updated_at`).run(req.dataset.id, row.id, conclusion, note, req.user.id, timestamp);
-  db.prepare('UPDATE review_results SET review_conclusion=?, review_note=?, updated_at=? WHERE dataset_id=? AND row_id=? AND review_status=\'in_progress\'').run(conclusion, note, timestamp, req.dataset.id, row.id);
-  logEvent(req.dataset.id, row.id, 'draft_save', req.user.id, { review_conclusion: conclusion });
+  const conclusion = clean(req.body?.review_conclusion) || null; const note = String(req.body?.review_note ?? ''); const isKeyCase = Boolean(req.body?.is_key_case); const timestamp = now();
+  db.prepare(`INSERT INTO review_drafts(dataset_id,row_id,review_conclusion,review_note,is_key_case,saved_by,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(dataset_id,row_id) DO UPDATE SET review_conclusion=excluded.review_conclusion, review_note=excluded.review_note, is_key_case=excluded.is_key_case, saved_by=excluded.saved_by, updated_at=excluded.updated_at`).run(req.dataset.id, row.id, conclusion, note, isKeyCase ? 1 : 0, req.user.id, timestamp);
+  if (review?.review_status === 'in_progress') db.prepare('UPDATE review_results SET review_conclusion=?, review_note=?, is_key_case=?, updated_at=? WHERE dataset_id=? AND row_id=? AND reviewer_id=? AND review_status=\'in_progress\'').run(conclusion, note, isKeyCase ? 1 : 0, timestamp, req.dataset.id, row.id, req.user.id);
+  logEvent(req.dataset.id, row.id, 'draft_save', req.user.id, { review_conclusion: conclusion, is_key_case: isKeyCase });
   review = reviewFor(req.dataset.id, row.id);
   res.json({ review: publicReview(review), draft: publicDraft(draftFor(req.dataset.id, row.id)) });
 });
@@ -315,9 +324,9 @@ app.post('/api/datasets/:id/rows/:rowId/submit', authRequired, activeDataset, (r
     return res.status(409).json({ error: `\u8be5\u5de5\u5355\u5df2\u7531 ${existing?.reviewer_name || existing?.reviewer_username || '\u5176\u4ed6\u7528\u6237'} \u9886\u53d6\u3002`, code: 'ROW_CLAIMED' });
   }
   const conclusion = clean(req.body?.review_conclusion || existing?.review_conclusion); if (!['ai_error', 'human_error', 'uncertain'].includes(conclusion)) return res.status(400).json({ error: '请选择有效的复核结论。' });
-  const note = String(req.body?.review_note ?? existing?.review_note ?? ''); const timestamp = now(); const submitter = req.user;
-  db.prepare(`INSERT INTO review_results(dataset_id,row_id,review_status,review_conclusion,review_note,reviewer_id,reviewer_name,reviewer_username,claimed_at,reviewed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(dataset_id,row_id) DO UPDATE SET review_status='completed', review_conclusion=excluded.review_conclusion, review_note=excluded.review_note, reviewer_id=excluded.reviewer_id, reviewer_name=excluded.reviewer_name, reviewer_username=excluded.reviewer_username, claimed_at=COALESCE(review_results.claimed_at,excluded.claimed_at), reviewed_at=excluded.reviewed_at, updated_at=excluded.updated_at`).run(req.dataset.id, row.id, 'completed', conclusion, note, submitter.id, submitter.display_name, submitter.username, existing?.claimed_at || timestamp, timestamp, timestamp);
-  db.prepare('DELETE FROM review_drafts WHERE dataset_id=? AND row_id=?').run(req.dataset.id, row.id); logEvent(req.dataset.id, row.id, 'submit', req.user.id, { review_conclusion: conclusion });
+  const note = String(req.body?.review_note ?? existing?.review_note ?? ''); const isKeyCase = Boolean(req.body?.is_key_case ?? existing?.is_key_case); const timestamp = now(); const submitter = req.user;
+  db.prepare(`INSERT INTO review_results(dataset_id,row_id,review_status,review_conclusion,review_note,is_key_case,reviewer_id,reviewer_name,reviewer_username,claimed_at,reviewed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(dataset_id,row_id) DO UPDATE SET review_status='completed', review_conclusion=excluded.review_conclusion, review_note=excluded.review_note, is_key_case=excluded.is_key_case, reviewer_id=excluded.reviewer_id, reviewer_name=excluded.reviewer_name, reviewer_username=excluded.reviewer_username, claimed_at=COALESCE(review_results.claimed_at,excluded.claimed_at), reviewed_at=excluded.reviewed_at, updated_at=excluded.updated_at`).run(req.dataset.id, row.id, 'completed', conclusion, note, isKeyCase ? 1 : 0, submitter.id, submitter.display_name, submitter.username, existing?.claimed_at || timestamp, timestamp, timestamp);
+  db.prepare('DELETE FROM review_drafts WHERE dataset_id=? AND row_id=?').run(req.dataset.id, row.id); logEvent(req.dataset.id, row.id, existing?.review_status === 'completed' ? 'resubmit' : 'submit', req.user.id, { review_conclusion: conclusion, is_key_case: isKeyCase, resubmission: existing?.review_status === 'completed' });
   res.json({ row: rowView(req.dataset, getRow(req.dataset.id, row.id), publicReview(reviewFor(req.dataset.id, row.id)), null) });
 });
 app.post('/api/datasets/:id/rows/:rowId/reopen', authRequired, adminRequired, activeDataset, (req, res) => {
@@ -330,7 +339,7 @@ function exportedRows(datasetId) {
   const dataset = db.prepare('SELECT * FROM datasets WHERE id=?').get(datasetId);
   if (!dataset) return null;
   const sourceRows = db.prepare('SELECT * FROM dataset_rows WHERE dataset_id=? ORDER BY row_number').all(datasetId);
-  return { dataset, rows: sourceRows.map((row) => { const raw = parseJson(row.data_json, {}); const review = reviewFor(datasetId, row.id); return { ...raw, review_status: review?.review_status || 'pending', review_conclusion: review?.review_conclusion || '', review_note: review?.review_note || '', reviewer_id: review?.reviewer_id || '', reviewer_name: review?.reviewer_name || '', reviewer_username: review?.reviewer_username || '', claimed_at: review?.claimed_at || '', reviewed_at: review?.reviewed_at || '' }; }) };
+  return { dataset, rows: sourceRows.map((row) => { const raw = parseJson(row.data_json, {}); const review = reviewFor(datasetId, row.id); return { ...raw, review_status: review?.review_status || 'pending', review_conclusion: review?.review_conclusion || '', review_note: review?.review_note || '', is_key_case: Boolean(review?.is_key_case), reviewer_id: review?.reviewer_id || '', reviewer_name: review?.reviewer_name || '', reviewer_username: review?.reviewer_username || '', claimed_at: review?.claimed_at || '', reviewed_at: review?.reviewed_at || '' }; }) };
 }
 app.get('/api/datasets/:id/export.json', authRequired, activeDataset, adminRequired, (req, res) => {
   const bundle = exportedRows(req.dataset.id); if (!bundle) return res.status(404).json({ error: '批次不存在。' });
@@ -338,7 +347,7 @@ app.get('/api/datasets/:id/export.json', authRequired, activeDataset, adminRequi
 });
 app.get('/api/datasets/:id/export.csv', authRequired, activeDataset, adminRequired, (req, res) => {
   const bundle = exportedRows(req.dataset.id); if (!bundle) return res.status(404).json({ error: '批次不存在。' });
-  const headers = [...parseJson(bundle.dataset.headers_json, []), 'review_status', 'review_conclusion', 'review_note', 'reviewer_id', 'reviewer_name', 'reviewer_username', 'claimed_at', 'reviewed_at'];
+  const headers = [...parseJson(bundle.dataset.headers_json, []), 'review_status', 'review_conclusion', 'review_note', 'is_key_case', 'reviewer_id', 'reviewer_name', 'reviewer_username', 'claimed_at', 'reviewed_at'];
   const body = csvText(headers, bundle.rows); res.setHeader('Content-Type', 'text/csv; charset=utf-8'); res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(bundle.dataset.original_name.replace(/\.csv$/i, '') + '-review.csv')}"`); res.send(body);
 });
 app.get('/api/admin/backup', authRequired, adminRequired, (req, res) => {
