@@ -386,3 +386,37 @@ details summary{color:#344b7a;font-weight:700;cursor:pointer}
 .detail-pane{container-type:inline-size}
 .decision-evidence{grid-template-columns:minmax(0,3fr) minmax(0,1fr);align-items:start}
 @container (max-width:620px){.decision-evidence{grid-template-columns:1fr}}
+
+
+/* Balanced judgment section: stack evidence and review panels to avoid asymmetric empty space. */
+.decision-evidence{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:10px;
+  margin:0 0 12px;
+}
+.evidence-item{
+  display:grid;
+  grid-template-columns:132px minmax(0,1fr);
+  align-items:start;
+  gap:14px;
+  padding:12px 15px;
+}
+.evidence-label{margin:2px 0 0;line-height:1.5}
+.evidence-value{min-height:0;line-height:1.7}
+.decision-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:12px;
+  align-items:start;
+}
+.review-decision-card .choice-row{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+.review-decision-card .choice{min-height:72px}
+@media(max-width:760px){
+  .evidence-item{grid-template-columns:1fr;gap:4px}
+  .review-decision-card .choice-row{grid-template-columns:1fr}
+}
