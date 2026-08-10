@@ -111,6 +111,10 @@ function renderDetail(){
     <div class="section-title comparison-title"><span>主工单与关联工单对比</span><span class="comparison-nav"><button id="prevRecord" class="small ghost">上一条</button><button id="nextRecord" class="small ghost">下一条</button></span><span class="comparison-legend"><span class="legend-item same-legend">相同</span><span class="legend-item main-diff-legend">主工单不同</span><span class="legend-item similar-diff-legend">关联工单不同</span><span class="legend-item missing-legend">未填写</span></span></div>
     <div class="pair-grid"><div class="ticket-card comparison-card">${comparisonTable(pairs)}</div></div>
     <div class="section-title">判断信息</div>
+    <div class="decision-evidence">
+      <div class="evidence-item ai-reason-evidence"><div class="evidence-label">AI 判断理由</div><div class="evidence-value">${esc(text(find(d,['ai_reason','AI理由'])))}</div></div>
+      <div class="evidence-item human-note-evidence"><div class="evidence-label">原始人工判断依据</div><div class="evidence-value">${esc(text(find(d,['human_note','人工备注'])))}</div></div>
+    </div>
     <div class="decision-grid">
       <div class="decision-card source-decision-card">
         <h3>AI / 人工原始判断</h3>
@@ -119,7 +123,7 @@ function renderDetail(){
           <div class="judgment-item human-judgment"><div class="judgment-label">人工判断</div><div class="judgment-value">${esc(text(humanJudgment))}</div><div class="judgment-tag">标签：${esc(text(humanLabel))}</div></div>
         </div>
         <div class="metric-row"><div class="metric"><span>相似度</span><strong>${esc(text(find(d,['similarity_score','相似度'])))}</strong></div><div class="metric"><span>AI 置信度</span><strong>${esc(text(find(d,['ai_confidence','AI置信度'])))}</strong></div></div>
-        <div class="explanation">${fieldBlock('AI 判断理由',find(d,['ai_reason','AI理由']))}${fieldBlock('原始人工备注',find(d,['human_note','人工备注']))}</div>
+
       </div>
       <div class="decision-card review-decision-card">
         <h3>本次复核结论</h3>

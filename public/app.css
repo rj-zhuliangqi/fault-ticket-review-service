@@ -359,3 +359,30 @@ details summary{color:#344b7a;font-weight:700;cursor:pointer}
 .filter-actions .active{border-color:var(--blue);background:var(--blue-soft);color:#0d4ea6}
 .group-rows{padding-top:5px}
 .ticket-group.collapsed .group-rows{display:none}
+
+
+/* Put the evidence needed for comparison directly below the judgment heading. */
+.decision-evidence{
+  display:grid;
+  grid-template-columns:minmax(0,2.15fr) minmax(220px,1fr);
+  gap:12px;
+  margin:0 0 12px;
+}
+.evidence-item{
+  min-width:0;
+  padding:13px 15px;
+  border:1px solid #dce4f2;
+  border-radius:12px;
+  background:#fbfcff;
+  box-shadow:0 8px 22px rgba(32,55,100,.045);
+}
+.evidence-item.ai-reason-evidence{background:linear-gradient(135deg,#f7faff,#fff);border-color:#c9d9f8}
+.evidence-item.human-note-evidence{background:linear-gradient(135deg,#f7fcfa,#fff);border-color:#c9e7d9}
+.evidence-label{font-size:12px;color:#52627d;font-weight:800;margin-bottom:7px}
+.evidence-value{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;color:#253858;min-height:44px}
+.decision-grid{align-items:start}
+@media(max-width:760px){.decision-evidence{grid-template-columns:1fr}.evidence-value{line-height:1.6}}
+
+.detail-pane{container-type:inline-size}
+.decision-evidence{grid-template-columns:minmax(0,3fr) minmax(0,1fr);align-items:start}
+@container (max-width:620px){.decision-evidence{grid-template-columns:1fr}}
