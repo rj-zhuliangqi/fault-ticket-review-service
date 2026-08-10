@@ -26,26 +26,26 @@ npm start
 浏览器访问：
 
 ```text
-http://127.0.0.1:8080
+http://127.0.0.1:3000
 ```
 
 服务默认监听：
 
 ```text
 HOST=0.0.0.0
-PORT=8080
+PORT=3000
 ```
 
 因此局域网内其他电脑可访问：
 
 ```text
-http://服务器IP:8080
+http://服务器IP:3000
 ```
 
-Windows 防火墙需要允许 Node.js 或 TCP 8080 入站连接。例如管理员 PowerShell：
+Windows 防火墙需要允许 Node.js 或 TCP 3000 入站连接。例如管理员 PowerShell：
 
 ```powershell
-New-NetFirewallRule -DisplayName "Fault Ticket Review 8080" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
+New-NetFirewallRule -DisplayName "Fault Ticket Review 3000" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow
 ```
 
 ## 首次使用
@@ -65,7 +65,7 @@ New-NetFirewallRule -DisplayName "Fault Ticket Review 8080" -Direction Inbound -
 
 ```ini
 HOST=0.0.0.0
-PORT=8080
+PORT=3000
 DATA_DIR=./data
 SESSION_DAYS=7
 MAX_UPLOAD_MB=80

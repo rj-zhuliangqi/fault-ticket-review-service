@@ -12,7 +12,7 @@ const __dirname = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const ROOT = resolve(__dirname, '..');
 const ENV_FILE = join(ROOT, '.env');
 if (existsSync(ENV_FILE)) { for (const line of readFileSync(ENV_FILE, 'utf8').split(/\r?\n/)) { const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/); if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, ''); } }
-const PORT = Number(process.env.PORT || 8080);
+const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 const DATA_DIR = resolve(process.env.DATA_DIR || join(ROOT, 'data'));
 const DATASETS_DIR = join(DATA_DIR, 'datasets');
