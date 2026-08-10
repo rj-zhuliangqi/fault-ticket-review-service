@@ -142,7 +142,27 @@ document.addEventListener('keydown',(event)=>{if($('appView').classList.contains
 function localKey(id){return `fault-review-local:${state.dataset.id}:${id}`};function readLocal(id){try{return JSON.parse(localStorage.getItem(localKey(id))||'null')}catch{return null}}function saveLocal(id,payload){localStorage.setItem(localKey(id),JSON.stringify({...payload,updated_at:new Date().toISOString()}))}
 function scheduleDraft(conclusion,note){if(!state.current)return;saveLocal(state.current.id,{review_conclusion:conclusion||'',review_note:note||''});$('saveState').textContent='正在保存草稿…';clearTimeout(state.saveTimer);state.saveTimer=setTimeout(async()=>{try{const out=await api(`/api/datasets/${state.dataset.id}/rows/${state.current.id}/draft`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({review_conclusion:conclusion||'',review_note:note||''})});state.current.review=out.review;state.current.draft=out.draft;saveLocal(state.current.id,{review_conclusion:out.draft.review_conclusion||'',review_note:out.draft.review_note||''});$('saveState').textContent=`已自动保存 ${fmtTime(out.draft.updated_at)}`;await loadDatasets();}catch(err){$('saveState').textContent=`保存失败：${err.message}`}} ,500)}
 async function claim(){try{const out=await api(`/api/datasets/${state.dataset.id}/rows/${state.current.id}/claim`,{method:'POST'});state.current=out.row;toast('已领取，当前工单归你负责。');await loadDatasets()}catch(err){toast(err.message)}}
-async function submit(){const choice=document.querySelector('.choice.selected')?.dataset.choice;const note=$('reviewNote')?.value||'';if(!choice)return toast('请选择复核结论。');if(!confirm('提交后默认只读，确认提交本条复核吗？'))return;try{const out=await api(`/api/datasets/${state.dataset.id}/rows/${state.current.id}/submit`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({review_conclusion:choice,review_note:note})});state.current=out.row;localStorage.removeItem(localKey(state.current.id));toast('复核已正式提交。');await loadDatasets()}catch(err){toast(err.message)}}
+async function submit(){
+  const choice=document.querySelector('.choice.selected')?.dataset.choice;
+  const note=$('reviewNote')?.value||'';
+  if(!choice)return toast('\u8bf7\u9009\u62e9\u590d\u6838\u7ed3\u8bba\u3002');
+  const submittedId=state.current?.id;
+  const currentIndex=state.rows.findIndex(r=>r.id===submittedId);
+  const nextCandidate=currentIndex>=0?state.rows[currentIndex+1]:null;
+  const datasetId=state.dataset?.id;
+  try{
+    const out=await api(`/api/datasets/${datasetId}/rows/${submittedId}/submit`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({review_conclusion:choice,review_note:note})});
+    state.current=out.row;
+    localStorage.removeItem(localKey(submittedId));
+    state.selectedId=nextCandidate?.id||null;
+    await loadDatasets();
+    if(nextCandidate&&state.selectedId===nextCandidate.id){toast('\u590d\u6838\u63d0\u4ea4\u6210\u529f\uff0c\u5df2\u81ea\u52a8\u8fdb\u5165\u4e0b\u4e00\u6761\u5de5\u5355\u3002');return;}
+    const submittedIndex=state.rows.findIndex(r=>r.id===submittedId);
+    const nextRow=submittedIndex>=0?state.rows[submittedIndex+1]:state.rows[Math.min(Math.max(currentIndex,0),Math.max(state.rows.length-1,0))];
+    if(nextRow&&nextRow.id!==submittedId){await loadDetail(nextRow.id,datasetId,state.loadToken);toast('\u590d\u6838\u63d0\u4ea4\u6210\u529f\uff0c\u5df2\u81ea\u52a8\u8fdb\u5165\u4e0b\u4e00\u6761\u5de5\u5355\u3002');}
+    else toast('\u590d\u6838\u63d0\u4ea4\u6210\u529f\uff0c\u5f53\u524d\u5df2\u662f\u6700\u540e\u4e00\u6761\u5de5\u5355\u3002');
+  }catch(err){toast(err.message)}
+}
 async function reopen(){if(!confirm('确认由管理员重新打开这条工单吗？原有正式结论和草稿将清除。'))return;try{await api(`/api/datasets/${state.dataset.id}/rows/${state.current.id}/reopen`,{method:'POST'});toast('工单已重开。');await loadDatasets()}catch(err){toast(err.message)}}
 async function uploadCsv(){const file=$('fileInput').files[0];if(!file)return;const fd=new FormData();fd.append('file',file);try{const out=await api('/api/datasets',{method:'POST',body:fd});toast(out.reused?'该 CSV 已存在，已复用原批次。':'CSV 上传成功，请在管理后台发布。');$('fileInput').value='';await loadDatasets()}catch(err){toast(err.message)}}
 function download(url){if(state.user?.role!=='admin')return toast('只有管理员可以执行此操作。');if(!state.dataset&&url.includes('/datasets/'))return toast('请先选择数据批次。');const a=document.createElement('a');a.href=url;a.click()}
