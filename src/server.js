@@ -279,6 +279,7 @@ app.get('/api/datasets/:id/rows', authRequired, activeDataset, (req, res) => {
   if (q.minConfidence !== undefined && q.minConfidence !== '') { where.push('dr.ai_confidence>=?'); params.push(Number(q.minConfidence)); }
   if (q.maxConfidence !== undefined && q.maxConfidence !== '') { where.push('dr.ai_confidence<=?'); params.push(Number(q.maxConfidence)); }
   const status = clean(q.review_status || q.status); if (status === 'pending') where.push('rr.review_status IS NULL'); else if (status === 'in_progress') { where.push("rr.review_status='in_progress'"); if (req.user.role !== 'admin' && q.mine === '1') { where.push('rr.reviewer_id=?'); params.push(req.user.id); } } else if (status === 'completed') where.push("rr.review_status='completed'");
+  const reviewConclusion = clean(q.review_conclusion); if (reviewConclusion === 'empty') where.push("(rr.review_conclusion IS NULL OR rr.review_conclusion='')"); else if (['ai_error','human_error','uncertain'].includes(reviewConclusion)) { where.push('rr.review_conclusion=?'); params.push(reviewConclusion); }
   if (q.mine === '1' && !status) { where.push('rr.reviewer_id=?'); params.push(req.user.id); }
   if (q.key_case === '1') where.push('COALESCE(rr.is_key_case,0)=1');
   if (q.key_case === '0') where.push('COALESCE(rr.is_key_case,0)=0');
