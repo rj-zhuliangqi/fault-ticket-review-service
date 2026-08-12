@@ -422,3 +422,16 @@ details summary{color:#344b7a;font-weight:700;cursor:pointer}
 }
 
 .key-case-tag{background:#fff1c7;color:#9a6700;border:1px solid #f0cf73;font-weight:700}.key-case-toggle{display:flex;align-items:center;gap:8px;margin:12px 0 10px;padding:10px 12px;border:1px solid #f0cf73;border-radius:9px;background:#fffaf0;color:#805b00}.key-case-toggle input{accent-color:#d89b00}.key-case-toggle span{font-weight:700}.key-case-toggle small{color:#9a7b3f}.key-case-toggle:has(input:disabled){opacity:.7}
+
+.admin-actions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  min-width:180px;
+}
+
+.admin-danger{
+  border:1px solid #f1b5ad;
+  color:var(--red);
+  background:var(--red-soft);
+}

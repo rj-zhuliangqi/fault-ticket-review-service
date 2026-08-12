@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, expires_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS datasets (
-  id TEXT PRIMARY KEY, original_name TEXT NOT NULL, sha256 TEXT NOT NULL UNIQUE,
+  id TEXT PRIMARY KEY, original_name TEXT NOT NULL, display_name TEXT, sha256 TEXT NOT NULL UNIQUE,
   headers_json TEXT NOT NULL, total_rows INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','archived')),
   source_path TEXT NOT NULL, created_by TEXT NOT NULL REFERENCES users(id),
@@ -79,6 +79,8 @@ function ensureColumn(table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((item) => item.name);
   if (!columns.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
+ensureColumn('datasets', 'display_name', 'TEXT');
+db.prepare("UPDATE datasets SET display_name=original_name WHERE display_name IS NULL OR TRIM(display_name)=''").run();
 ensureColumn('review_results', 'is_key_case', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('review_drafts', 'is_key_case', 'INTEGER NOT NULL DEFAULT 0');
 
@@ -133,7 +135,7 @@ function adminRequired(req, res, next) { if (req.user?.role !== 'admin') return 
 function activeDataset(req, res, next) { const dataset = db.prepare('SELECT * FROM datasets WHERE id=?').get(req.params.id); if (!dataset) return res.status(404).json({ error: '数据批次不存在。' }); if (req.user.role !== 'admin' && dataset.status !== 'published') return res.status(403).json({ error: '当前批次尚未发布。' }); req.dataset = dataset; return next(); }
 function logEvent(datasetId, rowIdValue, eventType, actorId, payload = {}) { db.prepare('INSERT INTO review_events(id,dataset_id,row_id,event_type,actor_id,payload_json,created_at) VALUES(?,?,?,?,?,?,?)').run(randomUUID(), datasetId, rowIdValue, eventType, actorId || null, json(payload), now()); }
 function rowView(dataset, row, review, draft) { return { id: row.id, row_number: row.row_number, data: parseJson(row.data_json, {}), review: review ? { ...review } : null, draft: draft ? { ...draft } : null, dataset_id: dataset.id }; }
-function datasetView(d) { const counts = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN rr.review_status='completed' THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN rr.review_status='in_progress' THEN 1 ELSE 0 END) AS in_progress, AVG(dr.similarity_score) AS avg_similarity, AVG(dr.ai_confidence) AS avg_confidence FROM dataset_rows dr LEFT JOIN review_results rr ON rr.dataset_id=dr.dataset_id AND rr.row_id=dr.id WHERE dr.dataset_id=?`).get(d.id); return { ...d, avg_similarity: counts?.avg_similarity == null ? null : Number(counts.avg_similarity), avg_confidence: counts?.avg_confidence == null ? null : Number(counts.avg_confidence), headers: parseJson(d.headers_json, []), total: d.total_rows, completed: Number(counts?.completed || 0), in_progress: Number(counts?.in_progress || 0), pending: d.total_rows - Number(counts?.completed || 0) - Number(counts?.in_progress || 0) }; }
+function datasetView(d) { const counts = db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN rr.review_status='completed' THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN rr.review_status='in_progress' THEN 1 ELSE 0 END) AS in_progress, AVG(dr.similarity_score) AS avg_similarity, AVG(dr.ai_confidence) AS avg_confidence FROM dataset_rows dr LEFT JOIN review_results rr ON rr.dataset_id=dr.dataset_id AND rr.row_id=dr.id WHERE dr.dataset_id=?`).get(d.id); return { ...d, display_name: d.display_name || d.original_name, avg_similarity: counts?.avg_similarity == null ? null : Number(counts.avg_similarity), avg_confidence: counts?.avg_confidence == null ? null : Number(counts.avg_confidence), headers: parseJson(d.headers_json, []), total: d.total_rows, completed: Number(counts?.completed || 0), in_progress: Number(counts?.in_progress || 0), pending: d.total_rows - Number(counts?.completed || 0) - Number(counts?.in_progress || 0) }; }
 
 function keyValue(data, names) {
   for (const name of names) {
@@ -310,11 +312,11 @@ app.post('/api/datasets', authRequired, adminRequired, upload.single('file'), (r
     for (const row of parsed.rows) { requireField(row, ['main_ticket_number', '主工单号', '主工单编号'], '主工单号'); requireField(row, ['similar_ticket_number', '关联工单号', '相似工单号'], '关联工单号'); }
     const id = randomUUID(); const originalName = safeName(req.file.originalname); const sourcePath = join(DATASETS_DIR, `${digest}_${originalName}`); writeFileSync(sourcePath, req.file.buffer);
     let reviewImport = { detected: false, restored: 0, cleared: 0 };
-    const created = now(); const insertDataset = db.prepare('INSERT INTO datasets(id,original_name,sha256,headers_json,total_rows,status,source_path,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)');
+    const created = now(); const insertDataset = db.prepare('INSERT INTO datasets(id,original_name,display_name,sha256,headers_json,total_rows,status,source_path,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)');
     const insertRow = db.prepare(`INSERT INTO dataset_rows(id,dataset_id,row_number,data_json,main_ticket_number,similar_ticket_number,main_business_group,ai_route,ai_judgment,human_judgment,similarity_score,ai_confidence,main_title,similar_title,main_solution,similar_solution,main_root_cause,similar_root_cause,ai_reason,human_note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     db.exec('BEGIN');
     try {
-      insertDataset.run(id, originalName, digest, json(parsed.headers), parsed.rows.length, 'draft', sourcePath, req.user.id, created);
+      insertDataset.run(id, originalName, originalName, digest, json(parsed.headers), parsed.rows.length, 'draft', sourcePath, req.user.id, created);
       parsed.rows.forEach((data, index) => { const c = rowColumns(data); insertRow.run(rowId(id, data, index), id, index + 1, json(data), c.main_ticket_number, c.similar_ticket_number, c.business_group, c.ai_route, c.ai_judgment, c.human_judgment, c.similarity_score, c.ai_confidence, c.main_title, c.similar_title, c.main_solution, c.similar_solution, c.main_root_cause, c.similar_root_cause, c.ai_reason, c.human_note); });
       reviewImport = syncImportedReviews(id, parsed.headers, parsed.rows, req.user.id);
       db.exec('COMMIT');
@@ -322,8 +324,11 @@ app.post('/api/datasets', authRequired, adminRequired, upload.single('file'), (r
     res.status(201).json({ dataset: datasetView(db.prepare('SELECT * FROM datasets WHERE id=?').get(id)), reused: false, review_import: reviewImport });
   } catch (error) { res.status(400).json({ error: error.message || '上传失败。' }); }
 });
-app.post('/api/datasets/:id/publish', authRequired, adminRequired, (req, res) => { const result = db.prepare("UPDATE datasets SET status='published', published_at=COALESCE(published_at,?) WHERE id=? AND status<>'archived'").run(now(), req.params.id); if (!result.changes) return res.status(404).json({ error: '批次不存在或已归档。' }); res.json({ dataset: datasetView(db.prepare('SELECT * FROM datasets WHERE id=?').get(req.params.id)) }); });
-app.post('/api/datasets/:id/archive', authRequired, adminRequired, (req, res) => { const result = db.prepare("UPDATE datasets SET status='archived' WHERE id=?").run(req.params.id); if (!result.changes) return res.status(404).json({ error: '批次不存在。' }); res.json({ ok: true }); });
+app.post('/api/datasets/:id/publish', authRequired, adminRequired, (req, res) => { const result = db.prepare("UPDATE datasets SET status='published', published_at=? WHERE id=? AND status<>'archived'").run(now(), req.params.id); if (!result.changes) return res.status(404).json({ error: '\u6279\u6b21\u4e0d\u5b58\u5728\u6216\u5df2\u5f52\u6863\u3002' }); res.json({ dataset: datasetView(db.prepare('SELECT * FROM datasets WHERE id=?').get(req.params.id)) }); });
+app.post('/api/datasets/:id/unpublish', authRequired, adminRequired, (req, res) => { const result = db.prepare("UPDATE datasets SET status='draft' WHERE id=? AND status='published'").run(req.params.id); if (!result.changes) return res.status(404).json({ error: '\u6279\u6b21\u4e0d\u5b58\u5728\u6216\u5f53\u524d\u4e0d\u662f\u5df2\u53d1\u5e03\u72b6\u6001\u3002' }); res.json({ dataset: datasetView(db.prepare('SELECT * FROM datasets WHERE id=?').get(req.params.id)) }); });
+app.put('/api/datasets/:id', authRequired, adminRequired, (req, res) => { const dataset = db.prepare('SELECT * FROM datasets WHERE id=?').get(req.params.id); if (!dataset) return res.status(404).json({ error: '\u6570\u636e\u6279\u6b21\u4e0d\u5b58\u5728\u3002' }); if (dataset.status !== 'draft') return res.status(400).json({ error: '\u53ea\u6709\u8349\u7a3f\u6216\u5df2\u64a4\u56de\u7684\u6279\u6b21\u53ef\u4fee\u6539\u53d1\u5e03\u540d\u79f0\u3002' }); const displayName = clean(req.body?.display_name); if (!displayName) return res.status(400).json({ error: '\u8bf7\u586b\u5199\u53d1\u5e03\u540d\u79f0\u3002' }); if (displayName.length > 120) return res.status(400).json({ error: '\u53d1\u5e03\u540d\u79f0\u6700\u591a 120 \u4e2a\u5b57\u7b26\u3002' }); db.prepare('UPDATE datasets SET display_name=? WHERE id=?').run(displayName, dataset.id); res.json({ dataset: datasetView(db.prepare('SELECT * FROM datasets WHERE id=?').get(dataset.id)) }); });
+app.post('/api/datasets/:id/archive', authRequired, adminRequired, (req, res) => { const result = db.prepare("UPDATE datasets SET status='archived' WHERE id=?").run(req.params.id); if (!result.changes) return res.status(404).json({ error: '\u6279\u6b21\u4e0d\u5b58\u5728\u3002' }); res.json({ ok: true }); });
+app.delete('/api/datasets/:id', authRequired, adminRequired, (req, res) => { const dataset = db.prepare('SELECT * FROM datasets WHERE id=?').get(req.params.id); if (!dataset) return res.status(404).json({ error: '\u6570\u636e\u6279\u6b21\u4e0d\u5b58\u5728\u3002' }); const sourcePath = dataset.source_path; db.exec('BEGIN'); try { db.prepare('DELETE FROM datasets WHERE id=?').run(dataset.id); db.exec('COMMIT'); } catch (error) { db.exec('ROLLBACK'); throw error; } try { if (sourcePath && existsSync(sourcePath)) unlinkSync(sourcePath); } catch {} res.json({ ok: true, deleted_id: dataset.id }); });
 app.get('/api/datasets/:id/source', authRequired, adminRequired, activeDataset, (req, res) => res.download(req.dataset.source_path, req.dataset.original_name));
 
 app.get('/api/datasets/:id/rows', authRequired, activeDataset, (req, res) => {
