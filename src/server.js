@@ -186,6 +186,57 @@ function autoClaimPending(req, row) {
   if (result.changes) logEvent(req.dataset.id,row.id,'claim',reviewer.id,{automatic:true});
   return reviewFor(req.dataset.id,row.id);
 }
+function normalizeImportedConclusion(value) {
+  const raw = clean(value).toLowerCase().replace(/\s+/g, ' ');
+  if (['ai_error', 'ai-error', 'ai error', 'ai\u5224\u65ad\u9519\u8bef', 'ai \u5224\u65ad\u9519\u8bef'].includes(raw)) return 'ai_error';
+  if (['human_error', 'human-error', 'human error', '\u4e1a\u52a1\u6807\u6ce8\u9519\u8bef', '\u4eba\u5de5\u6807\u6ce8\u9519\u8bef'].includes(raw)) return 'human_error';
+  if (['uncertain', '\u6682\u4e0d\u786e\u5b9a', '\u4e0d\u786e\u5b9a'].includes(raw)) return 'uncertain';
+  return null;
+}
+function importedBoolean(value) {
+  return ['1', 'true', 'yes', 'y', 'on', '\u662f', '\u91cd\u70b9\u5de5\u5355'].includes(clean(value).toLowerCase()) ? 1 : 0;
+}
+function hasImportedReviewColumns(headers) {
+  const names = new Set((headers || []).map((header) => clean(header).toLowerCase()));
+  return ['review_status', 'review_conclusion', 'review_note', 'is_key_case', 'reviewer_id', 'reviewer_name', 'reviewer_username', 'claimed_at', 'reviewed_at'].some((name) => names.has(name));
+}
+function importedReviewForData(data) {
+  const rawStatus = clean(keyValue(data, ['review_status', 'reviewStatus'])).toLowerCase();
+  const conclusion = normalizeImportedConclusion(keyValue(data, ['review_conclusion', 'reviewConclusion']));
+  const reviewerIdFromCsv = clean(keyValue(data, ['reviewer_id', 'reviewerId']));
+  const reviewerUsernameFromCsv = clean(keyValue(data, ['reviewer_username', 'reviewerUsername']));
+  const reviewerNameFromCsv = clean(keyValue(data, ['reviewer_name', 'reviewerName']));
+  const noteRaw = data.review_note ?? data.reviewNote;
+  const hasReviewState = ['completed', 'in_progress'].includes(rawStatus) || Boolean(conclusion) || Boolean(reviewerIdFromCsv || reviewerUsernameFromCsv || reviewerNameFromCsv || clean(noteRaw));
+  if (!hasReviewState || (rawStatus === 'pending' && !conclusion)) return null;
+  const reviewStatus = ['completed', 'in_progress'].includes(rawStatus) ? rawStatus : 'completed';
+  let matchedUser = reviewerIdFromCsv ? db.prepare('SELECT id,username,display_name FROM users WHERE id=?').get(reviewerIdFromCsv) : null;
+  if (!matchedUser && reviewerUsernameFromCsv) matchedUser = db.prepare('SELECT id,username,display_name FROM users WHERE LOWER(username)=LOWER(?)').get(reviewerUsernameFromCsv);
+  const reviewerId = matchedUser?.id || null;
+  const reviewerName = reviewerNameFromCsv || matchedUser?.display_name || null;
+  const reviewerUsername = reviewerUsernameFromCsv || matchedUser?.username || null;
+  const claimedAt = clean(keyValue(data, ['claimed_at', 'claimedAt'])) || null;
+  const reviewedAt = clean(keyValue(data, ['reviewed_at', 'reviewedAt'])) || null;
+  return { review_status: reviewStatus, review_conclusion: conclusion, review_note: noteRaw == null ? null : String(noteRaw), is_key_case: importedBoolean(keyValue(data, ['is_key_case', 'isKeyCase'])), reviewer_id: reviewerId, reviewer_name: reviewerName, reviewer_username: reviewerUsername, claimed_at: claimedAt, reviewed_at: reviewedAt, updated_at: reviewedAt || claimedAt || now() };
+}
+function syncImportedReviews(datasetId, headers, rows, actorId) {
+  if (!hasImportedReviewColumns(headers)) return { detected: false, restored: 0, cleared: 0 };
+  const existingRows = db.prepare('SELECT id,row_number FROM dataset_rows WHERE dataset_id=?').all(datasetId);
+  const rowIds = new Map(existingRows.map((row) => [row.row_number, row.id]));
+  const upsert = db.prepare('INSERT INTO review_results(dataset_id,row_id,review_status,review_conclusion,review_note,is_key_case,reviewer_id,reviewer_name,reviewer_username,claimed_at,reviewed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(dataset_id,row_id) DO UPDATE SET review_status=excluded.review_status, review_conclusion=excluded.review_conclusion, review_note=excluded.review_note, is_key_case=excluded.is_key_case, reviewer_id=excluded.reviewer_id, reviewer_name=excluded.reviewer_name, reviewer_username=excluded.reviewer_username, claimed_at=excluded.claimed_at, reviewed_at=excluded.reviewed_at, updated_at=excluded.updated_at');
+  const deleteReview = db.prepare('DELETE FROM review_results WHERE dataset_id=? AND row_id=?');
+  const deleteDraft = db.prepare('DELETE FROM review_drafts WHERE dataset_id=? AND row_id=?');
+  let restored = 0; let cleared = 0;
+  rows.forEach((data, index) => {
+    const rowIdValue = rowIds.get(index + 1); if (!rowIdValue) return;
+    const imported = importedReviewForData(data); const existing = reviewFor(datasetId, rowIdValue); const draft = draftFor(datasetId, rowIdValue);
+    if (!imported) { if (existing || draft) { deleteReview.run(datasetId, rowIdValue); deleteDraft.run(datasetId, rowIdValue); cleared += 1; logEvent(datasetId, rowIdValue, 'csv_review_clear', actorId, { source: 'csv-import' }); } return; }
+    const same = existing && existing.review_status === imported.review_status && existing.review_conclusion === imported.review_conclusion && existing.review_note === imported.review_note && Number(existing.is_key_case || 0) === imported.is_key_case && (existing.reviewer_id || null) === imported.reviewer_id && (existing.reviewer_name || null) === imported.reviewer_name && (existing.reviewer_username || null) === imported.reviewer_username && (existing.claimed_at || null) === imported.claimed_at && (existing.reviewed_at || null) === imported.reviewed_at;
+    upsert.run(datasetId, rowIdValue, imported.review_status, imported.review_conclusion, imported.review_note, imported.is_key_case, imported.reviewer_id, imported.reviewer_name, imported.reviewer_username, imported.claimed_at, imported.reviewed_at, imported.updated_at);
+    deleteDraft.run(datasetId, rowIdValue); restored += 1; if (!same) logEvent(datasetId, rowIdValue, 'csv_review_import', actorId, { source: 'csv-import', review_status: imported.review_status, review_conclusion: imported.review_conclusion });
+  });
+  return { detected: true, restored, cleared };
+}
 function createSession(res, userId) { const token = randomBytes(32).toString('hex'); const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString(); db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at) VALUES(?,?,?,?,?)').run(randomUUID(), userId, tokenHash(token), now(), expires); setCookie(res, 'review_sid', token, SESSION_DAYS * 86400); }
 function publicReview(review) {
   if (!review) return null;
@@ -247,19 +298,28 @@ app.post('/api/datasets', authRequired, adminRequired, upload.single('file'), (r
   try {
     if (!req.file) throw new Error('请选择 CSV 文件。');
     const digest = sha256(req.file.buffer); const existing = db.prepare('SELECT * FROM datasets WHERE sha256=?').get(digest);
-    if (existing) return res.json({ dataset: datasetView(existing), reused: true });
-    const parsed = parseCsvText(decodeCsv(req.file.buffer)); if (!parsed.rows.length) throw new Error('CSV 没有数据行。');
+    const parsed = parseCsvText(decodeCsv(req.file.buffer)); if (!parsed.rows.length) throw new Error('CSV \u6ca1\u6709\u6570\u636e\u884c\u3002');
+    if (existing) {
+      let reviewImport = { detected: false, restored: 0, cleared: 0 };
+      if (hasImportedReviewColumns(parsed.headers)) {
+        db.exec('BEGIN');
+        try { reviewImport = syncImportedReviews(existing.id, parsed.headers, parsed.rows, req.user.id); db.exec('COMMIT'); } catch (error) { db.exec('ROLLBACK'); throw error; }
+      }
+      return res.json({ dataset: datasetView(db.prepare('SELECT * FROM datasets WHERE id=?').get(existing.id)), reused: true, review_import: reviewImport });
+    }
     for (const row of parsed.rows) { requireField(row, ['main_ticket_number', '主工单号', '主工单编号'], '主工单号'); requireField(row, ['similar_ticket_number', '关联工单号', '相似工单号'], '关联工单号'); }
     const id = randomUUID(); const originalName = safeName(req.file.originalname); const sourcePath = join(DATASETS_DIR, `${digest}_${originalName}`); writeFileSync(sourcePath, req.file.buffer);
+    let reviewImport = { detected: false, restored: 0, cleared: 0 };
     const created = now(); const insertDataset = db.prepare('INSERT INTO datasets(id,original_name,sha256,headers_json,total_rows,status,source_path,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)');
     const insertRow = db.prepare(`INSERT INTO dataset_rows(id,dataset_id,row_number,data_json,main_ticket_number,similar_ticket_number,main_business_group,ai_route,ai_judgment,human_judgment,similarity_score,ai_confidence,main_title,similar_title,main_solution,similar_solution,main_root_cause,similar_root_cause,ai_reason,human_note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     db.exec('BEGIN');
     try {
       insertDataset.run(id, originalName, digest, json(parsed.headers), parsed.rows.length, 'draft', sourcePath, req.user.id, created);
       parsed.rows.forEach((data, index) => { const c = rowColumns(data); insertRow.run(rowId(id, data, index), id, index + 1, json(data), c.main_ticket_number, c.similar_ticket_number, c.business_group, c.ai_route, c.ai_judgment, c.human_judgment, c.similarity_score, c.ai_confidence, c.main_title, c.similar_title, c.main_solution, c.similar_solution, c.main_root_cause, c.similar_root_cause, c.ai_reason, c.human_note); });
+      reviewImport = syncImportedReviews(id, parsed.headers, parsed.rows, req.user.id);
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); try { unlinkSync(sourcePath); } catch {} throw error; }
-    res.status(201).json({ dataset: datasetView(db.prepare('SELECT * FROM datasets WHERE id=?').get(id)), reused: false });
+    res.status(201).json({ dataset: datasetView(db.prepare('SELECT * FROM datasets WHERE id=?').get(id)), reused: false, review_import: reviewImport });
   } catch (error) { res.status(400).json({ error: error.message || '上传失败。' }); }
 });
 app.post('/api/datasets/:id/publish', authRequired, adminRequired, (req, res) => { const result = db.prepare("UPDATE datasets SET status='published', published_at=COALESCE(published_at,?) WHERE id=? AND status<>'archived'").run(now(), req.params.id); if (!result.changes) return res.status(404).json({ error: '批次不存在或已归档。' }); res.json({ dataset: datasetView(db.prepare('SELECT * FROM datasets WHERE id=?').get(req.params.id)) }); });
